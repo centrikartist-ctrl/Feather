@@ -1,0 +1,50 @@
+{
+  "name": "@feather/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@feather/shared": "workspace:*",
+    "better-sqlite3": "^11.0.0",
+    "drizzle-orm": "^0.33.0",
+    "fastify": "^5.0.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/websocket": "^11.0.0",
+    "zod": "^3.23.0",
+    "pino": "^9.0.0",
+    "js-yaml": "^4.1.0",
+    "execa": "^9.0.0",
+    "micromatch": "^4.0.0",
+    "nanoid": "^5.0.0",
+    "node-cron": "^3.0.0",
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/js-yaml": "^4.0.0",
+    "@types/micromatch": "^4.0.0",
+    "@types/node": "^22.0.0",
+    "@types/node-cron": "^3.0.0",
+    "drizzle-kit": "^0.24.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0",
+    "rimraf": "^5.0.0"
+  }
+}

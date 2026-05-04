@@ -1,0 +1,27 @@
+{
+  "name": "feather",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lightweight local harness for Codex/API agent workflows",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "predev": "pnpm --filter @feather/shared build",
+    "pretypecheck": "pnpm --filter @feather/shared build",
+    "dev": "concurrently -k -n core,dashboard \"pnpm --filter @feather/core exec tsx src/main.ts\" \"pnpm --filter @feather/dashboard dev\"",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "concurrently": "^9.2.1",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

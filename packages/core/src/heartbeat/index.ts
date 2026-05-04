@@ -1,0 +1,305 @@
+import { nanoid } from "nanoid";
+import { and, eq, gte, lt } from "drizzle-orm";
+import { getDb } from "../db/index.js";
+import { heartbeatRuns, observations } from "../db/schema.js";
+import type { Observation, SuggestedAction } from "@feather/shared";
+import type { ProjectService } from "../projects/index.js";
+import type { ApprovalService } from "../approvals/index.js";
+import { gitStatus } from "../tools/git.js";
+import { loadProjectFileConfig } from "../config/index.js";
+import { getPanicState } from "../panic/index.js";
+
+export type HeartbeatCheckResult = {
+  observations: Omit<Observation, "id" | "createdAt">[];
+};
+
+const OBSERVATION_RETENTION_DAYS = 7;
+const OBSERVATION_DEDUPE_WINDOW_HOURS = 6;
+const PROJECT_CHECK_TIMEOUT_MS = 10000;
+
+export class HeartbeatService {
+  private isRunning = false;
+  private intervalHandle: ReturnType<typeof setInterval> | null = null;
+
+  constructor(
+    private readonly projects: ProjectService,
+    private readonly approvals: ApprovalService,
+  ) {}
+
+  start(intervalMinutes: number = 30): void {
+    if (this.intervalHandle) return;
+    this.intervalHandle = setInterval(
+      () => void this.run(),
+      intervalMinutes * 60 * 1000,
+    );
+  }
+
+  stop(): void {
+    if (this.intervalHandle) {
+      clearInterval(this.intervalHandle);
+      this.intervalHandle = null;
+    }
+  }
+
+  async run(options: { manual?: boolean } = {}): Promise<string> {
+    if (getPanicState().active) return "Skipped: panic mode is active.";
+    if (this.isRunning) return "Already running";
+    this.isRunning = true;
+
+    const runId = nanoid();
+    const startedAt = new Date().toISOString();
+    const db = getDb();
+
+    await db.insert(heartbeatRuns).values({
+      id: runId,
+      startedAt,
+      status: "running",
+    });
+
+    await this.pruneOldObservations();
+
+    const collectedObservations: Omit<Observation, "id" | "createdAt">[] = [];
+    let scannedProjects = 0;
+
+    try {
+      const projectList = await this.projects.listProjects();
+
+      for (const project of projectList) {
+        const config = loadProjectFileConfig(project.rootPath);
+        if (!this.shouldRunProject(project, config, options.manual === true)) {
+          continue;
+        }
+
+        scannedProjects += 1;
+
+        try {
+          const projectObservations = await withTimeout(
+            this.collectProjectObservations(project, config),
+            PROJECT_CHECK_TIMEOUT_MS,
+            `Heartbeat checks timed out for ${project.name}`,
+          );
+          collectedObservations.push(...projectObservations);
+        } catch (err) {
+          collectedObservations.push({
+            projectId: project.id,
+            source: "heartbeat",
+            severity: "warning",
+            title: `Heartbeat check failed for ${project.name}`,
+            body: err instanceof Error ? err.message : String(err),
+            suggestedActions: [],
+          });
+        }
+      }
+
+      let persistedCount = 0;
+      for (const obs of collectedObservations) {
+        if (await this.isDuplicateObservation(obs)) {
+          continue;
+        }
+
+        await db.insert(observations).values({
+          id: nanoid(),
+          projectId: obs.projectId,
+          source: obs.source,
+          severity: obs.severity,
+          title: obs.title,
+          body: obs.body,
+          suggestedActionsJson: JSON.stringify(obs.suggestedActions),
+          createdAt: new Date().toISOString(),
+        });
+        persistedCount += 1;
+      }
+
+      const summary = `Heartbeat complete. ${persistedCount} new observation(s) across ${scannedProjects} project(s).`;
+
+      await db
+        .update(heartbeatRuns)
+        .set({ completedAt: new Date().toISOString(), status: "completed", summary })
+        .where(eq(heartbeatRuns.id, runId));
+
+      return summary;
+    } catch (err) {
+      await db
+        .update(heartbeatRuns)
+        .set({ completedAt: new Date().toISOString(), status: "failed", summary: String(err) })
+        .where(eq(heartbeatRuns.id, runId));
+      throw err;
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  async getObservations(projectId?: string): Promise<Observation[]> {
+    const db = getDb();
+    const rows = projectId
+      ? await db.select().from(observations).where(eq(observations.projectId, projectId))
+      : await db.select().from(observations);
+
+    return rows.map((row) => ({
+      id: row.id,
+      projectId: row.projectId ?? undefined,
+      source: row.source as Observation["source"],
+      severity: row.severity as Observation["severity"],
+      title: row.title,
+      body: row.body,
+      suggestedActions: JSON.parse(row.suggestedActionsJson) as SuggestedAction[],
+      createdAt: row.createdAt,
+    }));
+  }
+
+  async generateDailyRecap(projectId: string): Promise<string> {
+    const project = await this.projects.getProject(projectId);
+    const obs = await this.getObservations(projectId);
+
+    const gitResult = await gitStatus({ projectRoot: project.rootPath });
+
+    const lines: string[] = [
+      `# Daily Recap: ${project.name}`,
+      `Generated: ${new Date().toLocaleString()}`,
+      "",
+    ];
+
+    if (gitResult.ok && typeof gitResult.output === "string") {
+      lines.push("## Git Status", "```", gitResult.output, "```", "");
+    }
+
+    if (obs.length > 0) {
+      lines.push("## Observations");
+      for (const o of obs.slice(-10)) {
+        lines.push(`- [${o.severity.toUpperCase()}] ${o.title}`);
+        if (o.suggestedActions.length > 0) {
+          for (const action of o.suggestedActions) {
+            lines.push(`  → ${action.label}`);
+          }
+        }
+      }
+    } else {
+      lines.push("No observations recorded.");
+    }
+
+    return lines.join("\n");
+  }
+
+  private shouldRunProject(
+    project: Awaited<ReturnType<ProjectService["getProject"]>>,
+    config: ReturnType<typeof loadProjectFileConfig>,
+    manual: boolean,
+  ): boolean {
+    if (!project.heartbeatEnabled) return false;
+    if (config?.heartbeat?.enabled === false) return false;
+    if (config?.heartbeat?.mode === "off") return false;
+    if (!manual && config?.heartbeat?.mode === "manual") return false;
+    if (!manual && config?.heartbeat?.quiet_hours && isWithinQuietHours(config.heartbeat.quiet_hours.start, config.heartbeat.quiet_hours.end)) {
+      return false;
+    }
+    return true;
+  }
+
+  private async collectProjectObservations(
+    project: Awaited<ReturnType<ProjectService["getProject"]>>,
+    config: ReturnType<typeof loadProjectFileConfig>,
+  ): Promise<Array<Omit<Observation, "id" | "createdAt">>> {
+    const collected: Array<Omit<Observation, "id" | "createdAt">> = [];
+    const checks = (config?.heartbeat as { checks?: { git_dirty?: boolean; pending_approvals?: boolean } } | undefined)?.checks;
+
+    if (checks?.git_dirty !== false) {
+      const gitResult = await gitStatus({ projectRoot: project.rootPath });
+      if (gitResult.ok && typeof gitResult.output === "string" && gitResult.output.trim()) {
+        const lines = gitResult.output.split("\n").filter((line) => !line.startsWith("##"));
+        if (lines.length > 0) {
+          collected.push({
+            projectId: project.id,
+            source: "heartbeat",
+            severity: "suggestion",
+            title: `${project.name} has uncommitted changes`,
+            body: `${lines.length} file(s) changed:\n${lines.slice(0, 10).join("\n")}`,
+            suggestedActions: [
+              {
+                id: nanoid(),
+                label: "Summarise changes",
+                prompt: `Summarise the uncommitted changes in ${project.name} and suggest the next step.`,
+                requiresApproval: false,
+              },
+            ],
+          });
+        }
+      }
+    }
+
+    if (checks?.pending_approvals !== false) {
+      const pending = await this.approvals.getPendingApprovals(project.id);
+      if (pending.length > 0) {
+        collected.push({
+          projectId: project.id,
+          source: "heartbeat",
+          severity: "warning",
+          title: `${project.name} has ${pending.length} pending approval(s)`,
+          body: pending.map((approval) => `• ${approval.title} (${approval.risk})`).join("\n"),
+          suggestedActions: [],
+        });
+      }
+    }
+
+    return collected;
+  }
+
+  private async isDuplicateObservation(obs: Omit<Observation, "id" | "createdAt">): Promise<boolean> {
+    const db = getDb();
+    const cutoff = new Date(Date.now() - OBSERVATION_DEDUPE_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
+    const rows = await db
+      .select()
+      .from(observations)
+      .where(
+        and(
+          eq(observations.source, obs.source),
+          eq(observations.title, obs.title),
+          eq(observations.body, obs.body),
+          gte(observations.createdAt, cutoff),
+        ),
+      );
+
+    return rows.some((row) => (row.projectId ?? undefined) === obs.projectId);
+  }
+
+  private async pruneOldObservations(): Promise<void> {
+    const db = getDb();
+    const cutoff = new Date(Date.now() - OBSERVATION_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    await db.delete(observations).where(lt(observations.createdAt, cutoff));
+  }
+}
+
+function isWithinQuietHours(start: string, end: string, now = new Date()): boolean {
+  const [startHour, startMinute] = parseClockTime(start);
+  const [endHour, endMinute] = parseClockTime(end);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+
+  if (startMinutes === endMinutes) return false;
+  if (startMinutes < endMinutes) {
+    return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  }
+  return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+}
+
+function parseClockTime(value: string): [number, number] {
+  const parts = value.split(":");
+  const hour = Number.parseInt(parts[0] ?? "0", 10);
+  const minute = Number.parseInt(parts[1] ?? "0", 10);
+  return [Number.isFinite(hour) ? hour : 0, Number.isFinite(minute) ? minute : 0];
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutHandle = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}

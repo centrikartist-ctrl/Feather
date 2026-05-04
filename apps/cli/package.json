@@ -1,0 +1,29 @@
+{
+  "name": "@feather/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "feather": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@feather/core": "workspace:*",
+    "@feather/shared": "workspace:*",
+    "commander": "^12.0.0",
+    "chalk": "^5.0.0",
+    "ora": "^8.0.0",
+    "inquirer": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "rimraf": "^5.0.0"
+  }
+}
