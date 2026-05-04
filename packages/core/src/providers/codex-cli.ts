@@ -73,6 +73,21 @@ export class CodexCliProvider implements ProviderAdapter {
     const MAX_OUTPUT_CHARS = 200_000;
     let totalOutputChars = 0;
     let aborted = false;
+    let abortListenerAttached = false;
+    let _killChild: (() => void) | undefined;
+
+    // Define onAbort before the try block so it can be referenced in finally.
+    const onAbort = (): void => {
+      aborted = true;
+      _killChild?.();
+    };
+
+    if (input.signal?.aborted) {
+      aborted = true;
+    } else if (input.signal) {
+      input.signal.addEventListener("abort", onAbort, { once: true });
+      abortListenerAttached = true;
+    }
 
     try {
       const child = execa(cmd, args, {
@@ -81,20 +96,12 @@ export class CodexCliProvider implements ProviderAdapter {
         all: true,
         reject: false,
       });
+      _killChild = () => forceKillChild(child);
       this.activeTasks.set(input.taskId, child);
 
-      // Wire external abort signal.
-      const onAbort = (): void => {
-        aborted = true;
+      if (aborted) {
         forceKillChild(child);
-      };
-      if (input.signal?.aborted) {
-        onAbort();
-      } else {
-        input.signal?.addEventListener("abort", onAbort, { once: true });
-      }
-
-      if (child.all) {
+      } else if (child.all) {
         for await (const chunk of child.all) {
           if (aborted) break;
           const text = chunk.toString();
@@ -107,27 +114,27 @@ export class CodexCliProvider implements ProviderAdapter {
           }
           yield { type: "text_delta", text };
         }
-      }
 
-      const result = await child;
+        const result = await child;
 
-      if (aborted) {
-        return;
-      }
-
-      if (result.exitCode !== 0) {
-        yield {
-          type: "error",
-          error: `Codex CLI exited with code ${result.exitCode}: ${result.stderr}`,
-        };
-      } else {
-        yield { type: "done", summary: "Codex CLI task completed." };
+        if (!aborted) {
+          if (result.exitCode !== 0) {
+            yield {
+              type: "error",
+              error: `Codex CLI exited with code ${result.exitCode}: ${result.stderr}`,
+            };
+          } else {
+            yield { type: "done", summary: "Codex CLI task completed." };
+          }
+        }
       }
     } catch (err) {
       if (aborted) return;
       yield { type: "error", error: `Failed to spawn Codex CLI: ${String(err)}` };
     } finally {
-      input.signal?.removeEventListener("abort", () => { /* cleaned via aborted flag */ });
+      if (abortListenerAttached) {
+        input.signal?.removeEventListener("abort", onAbort);
+      }
       this.activeTasks.delete(input.taskId);
     }
   }
@@ -168,6 +175,11 @@ export type CodexArgsBuildResult = {
 /**
  * Build the CLI args array for a Codex invocation.
  * Exported for unit testing.
+ *
+ * NOTE: approvalMode and mode are accepted in config for future compatibility
+ * but intentionally do not alter approval behaviour in v0.1.
+ * Feather uses its own approval system — dangerous Codex auto-approval flags
+ * (--full-auto, --dangerously-auto-approve-everything) are never emitted.
  */
 export function buildCodexArgs(
   config: CodexCliConfig,
@@ -176,18 +188,7 @@ export function buildCodexArgs(
   const command = config.command ?? "codex";
   const args: string[] = [];
 
-  // Approval mode determines how autonomous codex is.
-  if (config.approvalMode === "auto") {
-    args.push("--full-auto");
-  }
-  // mode: "exec" runs commands directly; "apply" is the default (review-first).
-  // Both use the same CLI entry point in current codex-cli; this is a placeholder
-  // for when the codex CLI exposes a --mode flag.
-  if (config.mode === "exec") {
-    args.push("--dangerously-auto-approve-everything");
-  }
-
-  if (input.systemPrompt) {
+  if (input.systemPrompt?.trim()) {
     args.push("--instructions", input.systemPrompt);
   }
 

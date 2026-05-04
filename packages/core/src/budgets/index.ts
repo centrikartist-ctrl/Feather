@@ -106,4 +106,17 @@ export class BudgetService {
     if (configuredLimit === undefined) return taskBudgetCents;
     return Math.min(taskBudgetCents, configuredLimit);
   }
+
+  /**
+   * Return the total estimated spend (in cents) recorded for a given task.
+   * Events without estimatedCents contribute 0 (pricing unknown for that event).
+   */
+  async getTaskSpendCents(taskId: string): Promise<number> {
+    const db = getDb();
+    const rows = await db
+      .select({ estimatedCents: costEvents.estimatedCents })
+      .from(costEvents)
+      .where(eq(costEvents.taskId, taskId));
+    return rows.reduce((sum, r) => sum + (r.estimatedCents ?? 0), 0);
+  }
 }

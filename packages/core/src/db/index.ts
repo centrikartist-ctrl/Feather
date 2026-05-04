@@ -203,6 +203,28 @@ const MIGRATIONS: MigrationStep[] = [
       sqlite.exec("CREATE INDEX IF NOT EXISTS idx_observations_dedupe_key ON observations(dedupe_key)");
     },
   },
+  {
+    id: "0004_panic_state_table",
+    up: (sqlite) => {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS panic_state (
+          id TEXT PRIMARY KEY,
+          active INTEGER NOT NULL,
+          activated_at TEXT,
+          reason TEXT,
+          updated_at TEXT NOT NULL
+        );
+        INSERT OR IGNORE INTO panic_state (id, active, updated_at)
+          VALUES ('global', 0, datetime('now'));
+      `);
+    },
+  },
+  {
+    id: "0005_observation_status_column",
+    up: (sqlite) => {
+      ensureColumn(sqlite, "observations", "status", "ALTER TABLE observations ADD COLUMN status TEXT NOT NULL DEFAULT 'open'");
+    },
+  },
 ];
 
 function runMigrations(sqlite: Database.Database): void {

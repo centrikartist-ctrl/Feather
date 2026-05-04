@@ -312,7 +312,7 @@ describe("TaskRunner", () => {
     const events = await runner.getTaskEvents(task.id);
     expect(finalTask?.status).toBe("cancelled");
     expect(events.some((event) => event.type === "summary")).toBe(false);
-    expect(events.some((event) => event.type === "error" && event.message.includes("exceeded hard limit"))).toBe(true);
+    expect(events.some((event) => event.type === "error" && event.message.includes("exceeded task budget"))).toBe(true);
   });
 
   it("returns idempotent event unsubscription", () => {

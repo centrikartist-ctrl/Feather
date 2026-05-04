@@ -10,7 +10,7 @@ import type { BudgetService } from "../budgets/index.js";
 import { loadProjectFileConfig } from "../config/index.js";
 import { buildTaskSystemPrompt } from "../config/index.js";
 import { PermissionService } from "../permissions/index.js";
-import { readFile, listFiles, writeFile, ReadFileInput, ListFilesInput, WriteFileInput } from "../tools/filesystem.js";
+import { readFile, listFiles, prepareWriteFile, commitPreparedWrite, ReadFileInput, ListFilesInput, WriteFileInput } from "../tools/filesystem.js";
 import { gitStatus, gitDiff, gitLog, GitDiffInput, GitLogInput } from "../tools/git.js";
 import { runCommand, RunCommandInput } from "../tools/shell.js";
 import { assertNotPanic } from "../panic/index.js";
@@ -409,16 +409,16 @@ export class TaskRunner {
       estimatedCents: event.estimatedCents,
     });
 
-    if (
-      state.hardTaskLimitCents !== undefined &&
-      event.estimatedCents !== undefined &&
-      event.estimatedCents > state.hardTaskLimitCents
-    ) {
-      state.interrupt = {
-        status: "cancelled",
-        message: `Task interrupted: estimated cost ${event.estimatedCents} cents exceeded hard limit of ${state.hardTaskLimitCents} cents.`,
-      };
-      throw new TaskInterruptedError(state.interrupt.status, state.interrupt.message);
+    if (state.hardTaskLimitCents !== undefined) {
+      // Use cumulative task spend so many small events can trigger the limit.
+      const taskSpend = await this.budgets.getTaskSpendCents(taskId);
+      if (taskSpend >= state.hardTaskLimitCents) {
+        state.interrupt = {
+          status: "cancelled",
+          message: "Task interrupted: estimated spend exceeded task budget.",
+        };
+        throw new TaskInterruptedError(state.interrupt.status, state.interrupt.message);
+      }
     }
   }
 
@@ -458,7 +458,7 @@ export class TaskRunner {
       reason: tool.reason,
       actionType: tool.actionType,
       risk: tool.risk,
-      payload: {
+      payload: tool.approvalPayload ?? {
         toolName,
         input,
       },
@@ -520,6 +520,8 @@ export class TaskRunner {
     reason: string;
     actionType: Approval["actionType"];
     risk: RiskLevel;
+    /** Override the default approval payload. Used to inject diff previews for file writes. */
+    approvalPayload?: Record<string, unknown>;
     execute: () => Promise<ToolResult>;
   } {
     const projectRoot = state.project?.rootPath;
@@ -540,7 +542,8 @@ export class TaskRunner {
           actionType: "shell",
           // Default to "review" when no permissions service: unknown shell commands should not auto-execute.
           risk: check?.requiresApproval ? "review" : (permissions !== undefined ? "safe" : "review"),
-          execute: () => runCommand(input, { projectRoot, permissions }),
+          // approvalResolved: true because task-runner is the sole approval authority.
+          execute: () => runCommand(input, { projectRoot, permissions, approvalResolved: true }),
         };
       }
       case "filesystem.readFile": {
@@ -569,12 +572,26 @@ export class TaskRunner {
         if (check && !check.allowed && check.risk === "blocked") {
           throw new TaskInterruptedError("blocked", `Blocked file write: ${check.reason ?? input.path}`);
         }
+        // Prepare write eagerly to capture diff for the approval preview (P4).
+        const prepared = prepareWriteFile(input, { projectRoot, permissions });
         return {
           title: `Write file: ${input.path}`,
           reason: check?.reason ?? "Provider requested a file write.",
           actionType: "filesystem",
           risk: check?.risk ?? "review",
-          execute: () => writeFile(input, { projectRoot, permissions }),
+          // Approval payload includes the diff so the reviewer sees exactly what will change.
+          approvalPayload: {
+            toolName: "filesystem.writeFile",
+            input: { path: input.path, contentLength: prepared.contentLength },
+            preview: {
+              diff: prepared.diff,
+              isNewFile: prepared.isNewFile,
+              previousHash: prepared.previousHash,
+              nextHash: prepared.nextHash,
+            },
+          },
+          // commitPreparedWrite verifies the file hasn't changed since prepare, then writes.
+          execute: () => Promise.resolve(commitPreparedWrite(prepared, { projectRoot, permissions, approvalResolved: true })),
         };
       }
       case "git.status": {

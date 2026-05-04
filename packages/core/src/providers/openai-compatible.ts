@@ -12,6 +12,9 @@ export type OpenAICompatibleConfig = {
   model: string;
   maxTaskCents?: number;
   organizationId?: string;
+  /** Pricing for cost estimation. If absent, estimatedCents will not be calculated. */
+  inputCentsPer1MTokens?: number;
+  outputCentsPer1MTokens?: number;
 };
 
 export class OpenAICompatibleProvider implements ProviderAdapter {
@@ -26,7 +29,8 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
     reasoning: false,
     costEstimate: true,
     supportsProjectRoot: false,
-    costEnforcementMode: "estimated",
+    // Will be overridden in constructor based on whether pricing is configured.
+    costEnforcementMode: "unknown",
   };
   private activeTasks = new Map<string, AbortController>();
 
@@ -37,6 +41,10 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
   ) {
     this.id = id;
     this.name = name;
+    // Honest capability: only claim "estimated" if pricing fields are present.
+    if (config.inputCentsPer1MTokens !== undefined && config.outputCentsPer1MTokens !== undefined) {
+      this.capabilities = { ...this.capabilities, costEnforcementMode: "estimated" };
+    }
   }
 
   private getApiKey(): string | null {
@@ -167,10 +175,23 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
             }
 
             if (parsed.usage) {
+              // Calculate estimatedCents only when pricing is configured.
+              let estimatedCents: number | undefined;
+              const inputCentsPer1M = this.config.inputCentsPer1MTokens;
+              const outputCentsPer1M = this.config.outputCentsPer1MTokens;
+              if (inputCentsPer1M !== undefined && outputCentsPer1M !== undefined) {
+                const inputTok = parsed.usage.prompt_tokens ?? 0;
+                const outputTok = parsed.usage.completion_tokens ?? 0;
+                estimatedCents = Math.ceil(
+                  (inputTok / 1_000_000) * inputCentsPer1M +
+                  (outputTok / 1_000_000) * outputCentsPer1M,
+                );
+              }
               yield {
                 type: "cost_estimate",
                 inputTokens: parsed.usage.prompt_tokens,
                 outputTokens: parsed.usage.completion_tokens,
+                ...(estimatedCents !== undefined ? { estimatedCents } : {}),
               };
             }
           } catch {

@@ -375,6 +375,7 @@ export class TelegramConnector {
   private async cmdPanic(chatId: number): Promise<void> {
     await activatePanic("Telegram /panic command");
     await this.services.tasks.cancelAllActive("panic");
+    this.services.heartbeat.stop();
     await sendMessage(this.config.botToken, chatId, "🚨 Panic mode activated. All active tasks have been cancelled. Send /resume confirm to resume.");
   }
 
@@ -384,6 +385,7 @@ export class TelegramConnector {
       return;
     }
     await deactivatePanic();
+    this.services.heartbeat.start(30);
     await sendMessage(this.config.botToken, chatId, "✅ Panic mode deactivated. Daemon is running normally.");
   }
 

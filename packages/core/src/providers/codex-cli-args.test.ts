@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildCodexArgs } from "./codex-cli.js";
 
+const DANGEROUS_PATTERNS = [
+  "--dangerously-auto-approve-everything",
+  "--full-auto",
+  "--auto-approve",
+  "--bypass-approval",
+  "--skip-approval",
+];
+
 describe("buildCodexArgs", () => {
   it("uses 'codex' as the default command", () => {
     const { command } = buildCodexArgs({}, { prompt: "Fix the bug" });
@@ -31,31 +39,47 @@ describe("buildCodexArgs", () => {
     expect(args[args.length - 1]).toBe("Do task");
   });
 
-  it("adds --full-auto for approvalMode 'auto'", () => {
-    const { args } = buildCodexArgs({ approvalMode: "auto" }, { prompt: "Go" });
-    expect(args).toContain("--full-auto");
+  it("produces no extra flags when config is empty", () => {
+    const { args } = buildCodexArgs({}, { prompt: "Simple" });
+    expect(args).toEqual(["Simple"]);
   });
 
-  it("does NOT add --full-auto for approvalMode 'feather'", () => {
-    const { args } = buildCodexArgs(
-      { approvalMode: "feather" },
-      { prompt: "Go" },
-    );
+  // Safety: dangerous auto-approval flags must NEVER appear regardless of config.
+  it("does NOT add --full-auto for approvalMode 'auto'", () => {
+    const { args } = buildCodexArgs({ approvalMode: "auto" }, { prompt: "Go" });
     expect(args).not.toContain("--full-auto");
   });
 
-  it("adds --dangerously-auto-approve-everything for mode 'exec'", () => {
+  it("does NOT add --dangerously-auto-approve-everything for mode 'exec'", () => {
     const { args } = buildCodexArgs({ mode: "exec" }, { prompt: "Go" });
-    expect(args).toContain("--dangerously-auto-approve-everything");
+    expect(args).not.toContain("--dangerously-auto-approve-everything");
   });
 
-  it("does NOT add the dangerous flag for mode 'apply'", () => {
+  it("does NOT add --dangerously-auto-approve-everything for mode 'apply'", () => {
     const { args } = buildCodexArgs({ mode: "apply" }, { prompt: "Go" });
     expect(args).not.toContain("--dangerously-auto-approve-everything");
   });
 
-  it("produces no extra flags when config is empty", () => {
-    const { args } = buildCodexArgs({}, { prompt: "Simple" });
-    expect(args).toEqual(["Simple"]);
+  it("never emits any dangerous approval bypass flag regardless of config", () => {
+    const configs = [
+      { approvalMode: "auto" as const },
+      { mode: "exec" as const },
+      { approvalMode: "auto" as const, mode: "exec" as const },
+      {},
+    ];
+
+    for (const config of configs) {
+      const { args } = buildCodexArgs(config, { prompt: "test" });
+      for (const dangerous of DANGEROUS_PATTERNS) {
+        expect(args).not.toContain(dangerous);
+      }
+      // Also check no arg contains substring patterns
+      const joinedArgs = args.join(" ");
+      expect(joinedArgs).not.toMatch(/danger/i);
+      expect(joinedArgs).not.toMatch(/auto-approve/i);
+      expect(joinedArgs).not.toMatch(/full-auto/i);
+      expect(joinedArgs).not.toMatch(/bypass/i);
+      expect(joinedArgs).not.toMatch(/skip-approval/i);
+    }
   });
 });

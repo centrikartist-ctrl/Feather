@@ -7,6 +7,11 @@ import { assertNotPanic } from "../panic/index.js";
 export type ShellContext = {
   projectRoot?: string;
   permissions?: PermissionService;
+  /**
+   * Must be true before a review-risk shell command is executed.
+   * The TaskRunner sets this after approval is resolved.
+   */
+  approvalResolved?: boolean;
 };
 
 export const RunCommandInput = z.object({
@@ -29,12 +34,9 @@ export async function runCommand(
       if (!check.allowed) {
         return { ok: false, error: `Shell command blocked: ${check.reason ?? "denied"}` };
       }
-      if (check.requiresApproval) {
-        return {
-          ok: false,
-          error: `Command requires approval: ${fullCommand}`,
-          output: { requiresApproval: true, command: fullCommand },
-        };
+      // P5: review-risk commands require explicit approval resolution.
+      if (check.requiresApproval && !ctx.approvalResolved) {
+        return { ok: false, error: `Approval required before running: ${fullCommand}` };
       }
     }
 

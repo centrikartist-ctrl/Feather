@@ -1,9 +1,11 @@
 import { nanoid } from "nanoid";
-import { sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
-import { panicLog } from "../db/schema.js";
+import { panicLog, panicState } from "../db/schema.js";
 import type { PanicState } from "@feather/shared";
 import { PanicModeError } from "@feather/shared";
+
+const PANIC_STATE_ID = "global";
 
 let _panicActive = false;
 let _panicActivatedAt: string | undefined;
@@ -23,6 +25,28 @@ export async function activatePanic(reason = "Manual panic"): Promise<void> {
   _panicActivatedAt = new Date().toISOString();
 
   const db = getDb();
+
+  // 1. Upsert authoritative panic_state row.
+  await db
+    .insert(panicState)
+    .values({
+      id: PANIC_STATE_ID,
+      active: true,
+      activatedAt: _panicActivatedAt,
+      reason,
+      updatedAt: _panicActivatedAt,
+    })
+    .onConflictDoUpdate({
+      target: panicState.id,
+      set: {
+        active: true,
+        activatedAt: _panicActivatedAt,
+        reason,
+        updatedAt: _panicActivatedAt,
+      },
+    });
+
+  // 2. Insert audit event into panic_log (history only).
   await db.insert(panicLog).values({
     id: nanoid(),
     event: JSON.stringify({ type: "panic_activated", reason }),
@@ -34,38 +58,61 @@ export async function deactivatePanic(): Promise<void> {
   _panicActive = false;
   _panicActivatedAt = undefined;
 
+  const now = new Date().toISOString();
   const db = getDb();
+
+  // 1. Upsert authoritative panic_state row.
+  await db
+    .insert(panicState)
+    .values({
+      id: PANIC_STATE_ID,
+      active: false,
+      activatedAt: null,
+      reason: null,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: panicState.id,
+      set: {
+        active: false,
+        activatedAt: null,
+        reason: null,
+        updatedAt: now,
+      },
+    });
+
+  // 2. Insert audit event into panic_log (history only).
   await db.insert(panicLog).values({
     id: nanoid(),
     event: JSON.stringify({ type: "panic_deactivated" }),
-    createdAt: new Date().toISOString(),
+    createdAt: now,
   });
 }
 
 /**
  * Restore panic state from the database after a daemon restart.
+ * Reads from panic_state (authoritative). Never infers state from panic_log.
  * Must be called once, BEFORE recoverTasksOnStartup, after initDb().
  */
 export async function loadPanicStateFromDb(): Promise<void> {
   const db = getDb();
-  // Get the most recent panic log entry
   const rows = await db
     .select()
-    .from(panicLog)
-    .orderBy(sql`rowid DESC`)
+    .from(panicState)
+    .where(eq(panicState.id, PANIC_STATE_ID))
     .limit(1);
 
   const row = rows[0];
-  if (!row) return;
-
-  const event = JSON.parse(row.event) as { type: string; reason?: string };
-  if (event.type === "panic_activated") {
-    _panicActive = true;
-    _panicActivatedAt = row.createdAt;
-  } else {
+  if (!row) {
+    // No row means a fresh DB before migration 0004 ran, or a race.
+    // Default to inactive.
     _panicActive = false;
     _panicActivatedAt = undefined;
+    return;
   }
+
+  _panicActive = row.active === true;
+  _panicActivatedAt = row.activatedAt ?? undefined;
 }
 
 /** Reset in-memory panic state. For use in tests only. */

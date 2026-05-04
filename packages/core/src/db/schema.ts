@@ -62,6 +62,7 @@ export const observations = sqliteTable("observations", {
   firstSeenAt: text("first_seen_at"),
   lastSeenAt: text("last_seen_at"),
   seenCount: integer("seen_count").notNull().default(1),
+  status: text("status").notNull().default("open"),
 });
 
 export const providerConfigs = sqliteTable("provider_configs", {
@@ -130,4 +131,14 @@ export const panicLog = sqliteTable("panic_log", {
   id: text("id").primaryKey(),
   event: text("event").notNull(),
   createdAt: text("created_at").notNull(),
+});
+
+// Authoritative durable panic state. Singleton row with id = 'global'.
+// panic_log is audit history only — never use it to derive active state.
+export const panicState = sqliteTable("panic_state", {
+  id: text("id").primaryKey(),
+  active: integer("active", { mode: "boolean" }).notNull(),
+  activatedAt: text("activated_at"),
+  reason: text("reason"),
+  updatedAt: text("updated_at").notNull(),
 });
