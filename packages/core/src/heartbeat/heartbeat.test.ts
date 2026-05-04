@@ -42,7 +42,7 @@ describe("HeartbeatService", () => {
       payload: { command: "npm install zod" },
     });
 
-    await heartbeat.run();
+    await heartbeat.run({ manual: true });
     const observations = await heartbeat.getObservations(project.id);
 
     expect(observations.length).toBeGreaterThan(0);

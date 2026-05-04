@@ -98,7 +98,7 @@ describe("smoke flow", () => {
     const events = await tasks.getTaskEvents(task.id);
     expect(events.some((event) => event.type === "summary")).toBe(true);
 
-    await heartbeat.run();
+    await heartbeat.run({ manual: true });
     const observations = await heartbeat.getObservations(project.id);
     expect(observations.length).toBeGreaterThan(0);
   });
