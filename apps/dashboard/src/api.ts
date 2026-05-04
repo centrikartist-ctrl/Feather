@@ -117,7 +117,7 @@ export const api = {
 
   providers: {
     list: () =>
-      request<{ providers: Array<{ id: string; name: string; type: string; enabled: boolean; config: Record<string, unknown>; capabilities: import("@feather/shared").ProviderCapabilities | null }> }>("/providers"),
+      request<{ providers: Array<{ id: string; name: string; type: string; enabled: boolean; config: Record<string, unknown>; capabilities: import("@feather/shared").ProviderCapabilities | null; costEnforcementMode: "known" | "estimated" | "unknown"; budgetWarning: string }> }>("/providers"),
     create: (body: Record<string, unknown>) =>
       request<{ provider: { id: string; name: string; type: string; enabled: boolean; config: Record<string, unknown> } }>("/providers", {
         method: "POST",

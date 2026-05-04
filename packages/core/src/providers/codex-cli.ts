@@ -11,7 +11,6 @@ import type {
 export type CodexCliConfig = {
   command?: string;
   mode?: "exec" | "apply";
-  approvalMode?: "feather" | "auto" | "manual";
 };
 
 export class CodexCliProvider implements ProviderAdapter {
@@ -176,8 +175,8 @@ export type CodexArgsBuildResult = {
  * Build the CLI args array for a Codex invocation.
  * Exported for unit testing.
  *
- * NOTE: approvalMode and mode are accepted in config for future compatibility
- * but intentionally do not alter approval behaviour in v0.1.
+ * NOTE: mode is currently informational and does not alter approval behaviour in v0.1.
+ * Legacy config fields such as approvalMode are ignored if present in stored JSON.
  * Feather uses its own approval system — dangerous Codex auto-approval flags
  * (--full-auto, --dangerously-auto-approve-everything) are never emitted.
  */

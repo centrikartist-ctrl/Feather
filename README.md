@@ -1,24 +1,48 @@
 # Feather
 
-A lightweight, open-source, local web dashboard and daemon harness for running Codex/API-powered agent workflows.
+Feather is a lightweight local web harness for Codex/API-powered workflows.
 
-> Codex with a good harness is elite. Feather is the lightweight harness for people who do not have workstation hardware and do not want a huge always-on agent stack.
+It gives builders a control layer around agents: projects, providers, approvals, panic mode, budgets, heartbeat checks, Telegram control, and daily recaps.
 
-Status: early build, active development, and interfaces may still change.
+Status: alpha. The current build is usable for local experiments, but interfaces and behavior may still change.
 
 ---
 
-## What it does
+## What Feather is
 
-- Register local projects
-- Connect providers: Codex CLI, OpenAI API, OpenRouter, any OpenAI-compatible endpoint
-- Send tasks to a project and stream output
-- Permission-gated filesystem, shell, and git tools (default deny)
-- Approval queue for risky actions — approve from the dashboard or Telegram
-- Heartbeat engine: git dirty checks, pending approval alerts, daily recaps
-- Budget limits with per-task and daily cost caps
-- Panic button — instant lockdown from dashboard, CLI, or Telegram
-- Optional Telegram bot for phone-based approvals and task creation
+- A localhost daemon plus web dashboard for running agent tasks against local projects
+- A permission and approval layer around filesystem, shell, git, and provider actions
+- A small operator surface for panic, budgets, heartbeat checks, and Telegram control
+- A local harness that works with Codex CLI and API-style providers without requiring a heavy always-on desktop agent stack
+
+## What Feather is not
+
+- Feather is not a replacement for Codex.
+- Feather is not an unrestricted desktop-control agent.
+- Feather is not a local LLM runtime.
+- Feather does not bypass Codex approvals.
+- Feather does not guarantee exact spend control unless provider pricing and usage data are configured.
+
+## Alpha safety guarantees
+
+- Panic state is durable and survives daemon restart.
+- Panic blocks new work and cancels active tasks.
+- Task recovery is conservative.
+- Task recovery is skipped when the daemon starts in panic mode.
+- Codex dangerous auto-approval flags are not emitted.
+- Review-risk file writes require approval.
+- File write approvals include diff previews.
+- Review-risk shell commands require approval.
+- Telegram can activate panic, resume with confirmation, cancel tasks, and handle approvals.
+
+## Known limitations
+
+- Codex process cancellation is best-effort.
+- OpenAI-compatible budget enforcement requires pricing fields and provider usage events.
+- Providers without pricing stay in usage-only / unknown-pricing mode.
+- File diffs are simple full-replace diffs in v0.1.
+- OpenAI-compatible native tool-calling is not implemented yet.
+- Desktop app packaging is not part of v0.1; Feather uses a local web dashboard.
 
 ---
 
@@ -27,43 +51,96 @@ Status: early build, active development, and interfaces may still change.
 **Requirements:** Node.js 20+, pnpm 9+
 
 ```sh
-# Install dependencies
 pnpm install
-
-# Build shared and core packages
-pnpm --filter @feather/shared build
-pnpm --filter @feather/core build
-pnpm --filter @feather/cli build
-
-# Start the daemon plus dashboard HMR at http://localhost:5173
+pnpm build
 pnpm dev
-
-# Or run the packaged daemon and open the guided setup flow
-feather daemon start
-feather setup
 ```
 
-On first launch, Feather now blocks on onboarding until you finish two stages:
+`pnpm dev` starts the daemon and dashboard development server. The dashboard runs at `http://localhost:5173` during development.
 
-1. Machine setup: configure at least one provider, decide whether to wire Telegram now, and register your first project.
-2. Agent profile: answer a chat-style builder that writes your global personal-agent file at `~/.feather/agent.md`.
+If you want the packaged CLI flow instead, build first and then run `feather daemon start`.
+
+## Local setup flow
+
+1. Run `pnpm dev`.
+2. Open the dashboard and finish onboarding.
+3. Configure at least one provider.
+4. Add a project root Feather is allowed to work in.
+5. Optionally configure Telegram for approvals and panic control.
+6. Start tasks from the dashboard or CLI.
 
 Project-specific guidance still lives in `.feather/instructions.md`, and repository-local `AGENTS.md` is still loaded when present.
 
----
+## Providers and pricing
 
-## Setup to working agent
+Feather currently supports:
 
-1. Start the daemon with `pnpm dev` during development or `feather daemon start` for the packaged build.
-2. Open the dashboard or run `feather setup`.
-3. In machine setup:
-  - Add an enabled provider. Start cheap for smoke tests, for example `gpt-5.4-mini` or `gpt-4o-mini`.
-  - Decide Telegram now. If you want mobile approvals, create a bot with [@BotFather](https://t.me/botfather), then enter the bot token and allowed numeric user IDs.
-  - Register the first project root Feather should work on.
-4. In the agent builder chat, define the global agent name, role, mission, tone, autonomy, boundaries, workflow habits, and reporting style.
-5. Start sending tasks from the dashboard home page or the CLI.
+- Codex CLI
+- OpenAI API
+- OpenRouter
+- Any OpenAI-compatible endpoint
 
-If you add Telegram credentials while the daemon is already running, restart the daemon once so the bot connection can be established with the saved config.
+For OpenAI, OpenRouter, and OpenAI-compatible providers you can optionally set:
+
+- `inputCentsPer1MTokens`
+- `outputCentsPer1MTokens`
+
+Those pricing fields are used for budget estimates. If you leave them blank, Feather can still record token usage, but it cannot claim hard spend enforcement.
+
+For Codex CLI, the `mode` field is currently informational only. It does not bypass Feather approvals.
+
+## Projects
+
+Register projects in the dashboard during onboarding or from the Projects page later.
+
+Each project stores config in `.feather/project.yml`:
+
+```yaml
+name: my-project
+codingProvider: codex-cli
+permissions:
+  allowedPaths: ["src/", "tests/"]
+  shellCommandAllow: ["npm test", "pnpm build"]
+  shellCommandReview: ["npm install *"]
+heartbeat:
+  enabled: true
+  mode: passive
+  checks:
+    git_dirty: true
+    pending_approvals: true
+budget:
+  dailyLimitCents: 500
+  taskLimitCents: 100
+```
+
+## Dashboard and daemon
+
+- `pnpm dev` starts the daemon plus dashboard HMR
+- The daemon API serves on localhost only
+- Built dashboard assets are served by the daemon after a production build
+
+## Telegram setup
+
+Use onboarding if you want the simplest path. Feather also supports environment-variable setup:
+
+1. Create a bot via [@BotFather](https://t.me/botfather)
+2. Set:
+
+```sh
+TELEGRAM_BOT_TOKEN=your_token
+TELEGRAM_ALLOWED_USER_IDS=123456789
+```
+
+3. Restart the daemon if you added credentials after it was already running
+
+Useful commands include `/status`, `/projects`, `/task <project> <prompt>`, `/approvals`, `/approve <id>`, `/reject <id>`, `/panic`, `/resume confirm`, `/budget`, and `/cancel <taskId>`.
+
+## Panic and resume
+
+- Dashboard panic stops active work and stops heartbeat
+- Telegram `/panic` does the same
+- Resume requires confirmation via `/resume confirm` in Telegram or the dashboard resume control
+- If the daemon restarts while panic is active, API and Telegram still come up, but mutating task recovery stays off until you resume
 
 ---
 
@@ -86,47 +163,7 @@ Dashboard (served by daemon on port 47383)
 Telegram Bot (optional, long-poll)
 ```
 
----
-
-## Project config
-
-Each project stores config in `.feather/project.yml`:
-
-```yaml
-name: my-project
-codingProvider: codex-cli
-permissions:
-  allowedPaths: ["src/", "tests/"]
-  shellCommandAllow: ["npm test", "pnpm build"]
-  shellCommandReview: ["npm install *"]
-heartbeat:
-  enabled: true
-  mode: passive
-  checks:
-    git_dirty: true
-    pending_approvals: true
-budget:
-  dailyLimitCents: 500
-  taskLimitCents: 100
-```
-
 Customize agent instructions in `.feather/instructions.md`.
-
----
-
-## Telegram setup
-
-Use the onboarding flow if you want the easiest path. Feather also still supports environment-variable setup:
-
-1. Create a bot via [@BotFather](https://t.me/botfather)
-2. Set environment variables:
-  ```sh
-  TELEGRAM_BOT_TOKEN=your_token
-  TELEGRAM_ALLOWED_USER_IDS=123456789
-  ```
-3. Start the daemon — the bot will auto-connect
-
-Commands: `/status`, `/projects`, `/task <project> <prompt>`, `/approvals`, `/approve <id>`, `/reject <id>`, `/recap <project>`, `/budget`
 
 ---
 
@@ -153,6 +190,7 @@ Commands: `/status`, `/projects`, `/task <project> <prompt>`, `/approvals`, `/ap
 - [Project config](docs/project-config.md)
 - [Remote mode](docs/remote-mode.md)
 - [Roadmap](docs/roadmap.md)
+- [Alpha checklist](docs/ALPHA_CHECKLIST.md)
 
 ---
 

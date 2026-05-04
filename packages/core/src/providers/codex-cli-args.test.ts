@@ -46,7 +46,7 @@ describe("buildCodexArgs", () => {
 
   // Safety: dangerous auto-approval flags must NEVER appear regardless of config.
   it("does NOT add --full-auto for approvalMode 'auto'", () => {
-    const { args } = buildCodexArgs({ approvalMode: "auto" }, { prompt: "Go" });
+    const { args } = buildCodexArgs({ approvalMode: "auto" } as any, { prompt: "Go" });
     expect(args).not.toContain("--full-auto");
   });
 
@@ -62,14 +62,14 @@ describe("buildCodexArgs", () => {
 
   it("never emits any dangerous approval bypass flag regardless of config", () => {
     const configs = [
-      { approvalMode: "auto" as const },
+      { approvalMode: "auto" },
       { mode: "exec" as const },
-      { approvalMode: "auto" as const, mode: "exec" as const },
+      { approvalMode: "auto", mode: "exec" as const },
       {},
     ];
 
     for (const config of configs) {
-      const { args } = buildCodexArgs(config, { prompt: "test" });
+      const { args } = buildCodexArgs(config as any, { prompt: "test" });
       for (const dangerous of DANGEROUS_PATTERNS) {
         expect(args).not.toContain(dangerous);
       }

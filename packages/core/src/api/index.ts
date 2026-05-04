@@ -64,6 +64,8 @@ const ProviderConfigRequestSchema = z.discriminatedUnion("type", [
     model: z.string().min(1),
     maxTaskCents: z.number().int().positive().optional(),
     baseUrl: z.string().url().optional(),
+    inputCentsPer1MTokens: z.number().nonnegative().optional(),
+    outputCentsPer1MTokens: z.number().nonnegative().optional(),
   }),
   z.object({
     id: z.string().min(1),
@@ -74,6 +76,8 @@ const ProviderConfigRequestSchema = z.discriminatedUnion("type", [
     apiKeyEnv: z.string().min(1),
     model: z.string().min(1),
     maxTaskCents: z.number().int().positive().optional(),
+    inputCentsPer1MTokens: z.number().nonnegative().optional(),
+    outputCentsPer1MTokens: z.number().nonnegative().optional(),
   }),
   z.object({
     id: z.string().min(1),
@@ -83,6 +87,8 @@ const ProviderConfigRequestSchema = z.discriminatedUnion("type", [
     apiKeyEnv: z.string().min(1),
     model: z.string().min(1),
     maxTaskCents: z.number().int().positive().optional(),
+    inputCentsPer1MTokens: z.number().nonnegative().optional(),
+    outputCentsPer1MTokens: z.number().nonnegative().optional(),
   }),
 ]);
 
@@ -118,6 +124,9 @@ const AgentProfileRequestSchema = z.object({
   workflow: z.union([z.string(), z.array(z.string())]),
   reporting: z.string().min(1),
 });
+
+type ProviderConfigRequest = z.infer<typeof ProviderConfigRequestSchema>;
+type ProviderConfigType = ProviderConfigRequest["type"];
 
 export async function createApiServer(services: ApiServices) {
   const dashboardDistDir = fileURLToPath(new URL("../../../../apps/dashboard/dist/", import.meta.url));
@@ -191,6 +200,8 @@ export async function createApiServer(services: ApiServices) {
                 model: input.provider.model,
                 maxTaskCents: input.provider.maxTaskCents,
                 baseUrl: input.provider.baseUrl,
+                inputCentsPer1MTokens: input.provider.inputCentsPer1MTokens,
+                outputCentsPer1MTokens: input.provider.outputCentsPer1MTokens,
               };
             case "openai-compatible":
               return {
@@ -198,12 +209,16 @@ export async function createApiServer(services: ApiServices) {
                 apiKeyEnv: input.provider.apiKeyEnv,
                 model: input.provider.model,
                 maxTaskCents: input.provider.maxTaskCents,
+                inputCentsPer1MTokens: input.provider.inputCentsPer1MTokens,
+                outputCentsPer1MTokens: input.provider.outputCentsPer1MTokens,
               };
             case "openrouter":
               return {
                 apiKeyEnv: input.provider.apiKeyEnv,
                 model: input.provider.model,
                 maxTaskCents: input.provider.maxTaskCents,
+                inputCentsPer1MTokens: input.provider.inputCentsPer1MTokens,
+                outputCentsPer1MTokens: input.provider.outputCentsPer1MTokens,
               };
           }
         })(),
@@ -515,8 +530,10 @@ export async function createApiServer(services: ApiServices) {
       name: config.name,
       type: config.type,
       enabled: config.enabled,
-      config: config.config,
+      config: sanitizeProviderConfig(config.type, config.config),
       capabilities: providersById.get(config.id)?.capabilities ?? null,
+      costEnforcementMode: getProviderCostEnforcementMode(config.type, config.config, providersById.get(config.id)?.capabilities ?? null),
+      budgetWarning: getProviderBudgetWarning(config.type, config.config, providersById.get(config.id)?.capabilities ?? null),
     }));
     return { providers: list };
   });
@@ -539,6 +556,8 @@ export async function createApiServer(services: ApiServices) {
               model: input.model,
               maxTaskCents: input.maxTaskCents,
               baseUrl: input.baseUrl,
+              inputCentsPer1MTokens: input.inputCentsPer1MTokens,
+              outputCentsPer1MTokens: input.outputCentsPer1MTokens,
             };
           case "openai-compatible":
             return {
@@ -546,12 +565,16 @@ export async function createApiServer(services: ApiServices) {
               apiKeyEnv: input.apiKeyEnv,
               model: input.model,
               maxTaskCents: input.maxTaskCents,
+              inputCentsPer1MTokens: input.inputCentsPer1MTokens,
+              outputCentsPer1MTokens: input.outputCentsPer1MTokens,
             };
           case "openrouter":
             return {
               apiKeyEnv: input.apiKeyEnv,
               model: input.model,
               maxTaskCents: input.maxTaskCents,
+              inputCentsPer1MTokens: input.inputCentsPer1MTokens,
+              outputCentsPer1MTokens: input.outputCentsPer1MTokens,
             };
         }
       })(),
@@ -672,4 +695,78 @@ function hasTelegramConfig(globalConfig: { telegramBotToken?: string; allowedTel
     : globalConfig.allowedTelegramUserIds ?? [];
 
   return Boolean(token && allowedUserIds.length > 0);
+}
+
+function sanitizeProviderConfig(
+  type: ProviderConfigType,
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  switch (type) {
+    case "codex-cli":
+      return {
+        ...(typeof config.command === "string" ? { command: config.command } : {}),
+        ...(config.mode === "apply" || config.mode === "exec" ? { mode: config.mode } : {}),
+      };
+    case "openai":
+      return {
+        ...(typeof config.apiKeyEnv === "string" ? { apiKeyEnv: config.apiKeyEnv } : {}),
+        ...(typeof config.model === "string" ? { model: config.model } : {}),
+        ...(typeof config.maxTaskCents === "number" ? { maxTaskCents: config.maxTaskCents } : {}),
+        ...(typeof config.baseUrl === "string" ? { baseUrl: config.baseUrl } : {}),
+        ...(typeof config.inputCentsPer1MTokens === "number" ? { inputCentsPer1MTokens: config.inputCentsPer1MTokens } : {}),
+        ...(typeof config.outputCentsPer1MTokens === "number" ? { outputCentsPer1MTokens: config.outputCentsPer1MTokens } : {}),
+      };
+    case "openai-compatible":
+      return {
+        ...(typeof config.baseUrl === "string" ? { baseUrl: config.baseUrl } : {}),
+        ...(typeof config.apiKeyEnv === "string" ? { apiKeyEnv: config.apiKeyEnv } : {}),
+        ...(typeof config.model === "string" ? { model: config.model } : {}),
+        ...(typeof config.maxTaskCents === "number" ? { maxTaskCents: config.maxTaskCents } : {}),
+        ...(typeof config.inputCentsPer1MTokens === "number" ? { inputCentsPer1MTokens: config.inputCentsPer1MTokens } : {}),
+        ...(typeof config.outputCentsPer1MTokens === "number" ? { outputCentsPer1MTokens: config.outputCentsPer1MTokens } : {}),
+      };
+    case "openrouter":
+      return {
+        ...(typeof config.apiKeyEnv === "string" ? { apiKeyEnv: config.apiKeyEnv } : {}),
+        ...(typeof config.model === "string" ? { model: config.model } : {}),
+        ...(typeof config.maxTaskCents === "number" ? { maxTaskCents: config.maxTaskCents } : {}),
+        ...(typeof config.inputCentsPer1MTokens === "number" ? { inputCentsPer1MTokens: config.inputCentsPer1MTokens } : {}),
+        ...(typeof config.outputCentsPer1MTokens === "number" ? { outputCentsPer1MTokens: config.outputCentsPer1MTokens } : {}),
+      };
+    default:
+      return {};
+  }
+}
+
+function getProviderCostEnforcementMode(
+  type: ProviderConfigType,
+  config: Record<string, unknown>,
+  capabilities: { costEnforcementMode?: "known" | "estimated" | "unknown" } | null,
+): "known" | "estimated" | "unknown" {
+  if (capabilities?.costEnforcementMode) {
+    return capabilities.costEnforcementMode;
+  }
+
+  if (type === "codex-cli") {
+    return "unknown";
+  }
+
+  return typeof config.inputCentsPer1MTokens === "number" && typeof config.outputCentsPer1MTokens === "number"
+    ? "estimated"
+    : "unknown";
+}
+
+function getProviderBudgetWarning(
+  type: ProviderConfigType,
+  config: Record<string, unknown>,
+  capabilities: { costEnforcementMode?: "known" | "estimated" | "unknown" } | null,
+): string {
+  const mode = getProviderCostEnforcementMode(type, config, capabilities);
+  if (mode === "known") {
+    return "Provider returns cost data directly.";
+  }
+  if (mode === "estimated") {
+    return "Pricing configured. Feather can estimate task spend.";
+  }
+  return "No pricing configured. Feather can record token usage but cannot enforce hard spend caps.";
 }

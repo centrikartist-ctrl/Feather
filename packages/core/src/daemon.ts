@@ -42,9 +42,15 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
   const heartbeat = new HeartbeatService(projects, approvals);
 
   await providerConfigs.loadIntoRegistry();
-  const recovery = await tasks.recoverTasksOnStartup();
-  if (recovery.keptQueued > 0 || recovery.cancelledRunning > 0 || recovery.pendingApproval > 0) {
-    logger.info({ recovery }, "Recovered persisted tasks after daemon startup");
+  if (!panicOnStartup.active) {
+    const recovery = await tasks.recoverTasksOnStartup();
+    if (recovery.keptQueued > 0 || recovery.cancelledRunning > 0 || recovery.pendingApproval > 0) {
+      logger.info({ recovery }, "Recovered persisted tasks after daemon startup");
+    }
+  } else {
+    logger.warn(
+      "Task recovery skipped because panic mode is active. Resume first, then inspect tasks manually.",
+    );
   }
 
   const app = await createApiServer({

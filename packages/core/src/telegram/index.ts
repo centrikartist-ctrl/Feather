@@ -405,10 +405,13 @@ export class TelegramConnector {
     const text = [
       "*Feather approval needed*",
       "",
+      `Title: ${title}`,
       `Project: ${project}`,
       `Action: ${action}`,
       `Risk: ${risk}`,
       `Reason: ${reason}`,
+      `Approval ID: ${approvalId}`,
+      "Diff available in dashboard.",
       "",
       `Approve once: /approve ${approvalId}`,
       `Reject: /reject ${approvalId}`,

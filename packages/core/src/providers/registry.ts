@@ -17,6 +17,8 @@ export type ProviderConfigEntry =
       model: string;
       maxTaskCents?: number;
       baseUrl?: string;
+      inputCentsPer1MTokens?: number;
+      outputCentsPer1MTokens?: number;
     }
   | {
       id: string;
@@ -25,6 +27,8 @@ export type ProviderConfigEntry =
       apiKeyEnv: string;
       model: string;
       maxTaskCents?: number;
+      inputCentsPer1MTokens?: number;
+      outputCentsPer1MTokens?: number;
     }
   | {
       id: string;
@@ -32,6 +36,8 @@ export type ProviderConfigEntry =
       apiKeyEnv: string;
       model: string;
       maxTaskCents?: number;
+      inputCentsPer1MTokens?: number;
+      outputCentsPer1MTokens?: number;
     };
 
 export class ProviderRegistry {
@@ -67,6 +73,8 @@ export class ProviderRegistry {
           model: config.model,
           maxTaskCents: config.maxTaskCents,
           baseUrl: config.baseUrl,
+          inputCentsPer1MTokens: config.inputCentsPer1MTokens,
+          outputCentsPer1MTokens: config.outputCentsPer1MTokens,
         });
       case "openai-compatible":
         return new OpenAICompatibleProvider(config.id, `OpenAI-compatible (${config.id})`, {
@@ -74,12 +82,16 @@ export class ProviderRegistry {
           apiKeyEnv: config.apiKeyEnv,
           model: config.model,
           maxTaskCents: config.maxTaskCents,
+          inputCentsPer1MTokens: config.inputCentsPer1MTokens,
+          outputCentsPer1MTokens: config.outputCentsPer1MTokens,
         });
       case "openrouter":
         return new OpenRouterProvider(config.id, {
           apiKeyEnv: config.apiKeyEnv,
           model: config.model,
           maxTaskCents: config.maxTaskCents,
+          inputCentsPer1MTokens: config.inputCentsPer1MTokens,
+          outputCentsPer1MTokens: config.outputCentsPer1MTokens,
         });
       default: {
         const _exhaustive: never = config;

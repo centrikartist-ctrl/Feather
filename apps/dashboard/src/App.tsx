@@ -110,6 +110,53 @@ function Badge({ children, variant = "default" }: { children: React.ReactNode; v
   );
 }
 
+const APPROVAL_PAYLOAD_PREVIEW_LIMIT = 4000;
+
+function formatCostMode(mode: "known" | "estimated" | "unknown" | undefined): "known" | "estimated" | "unknown" {
+  return mode ?? "unknown";
+}
+
+function getBudgetEnforcementLabel(mode: "known" | "estimated" | "unknown" | undefined): string {
+  switch (formatCostMode(mode)) {
+    case "known":
+      return "Budget enforcement: known provider cost data";
+    case "estimated":
+      return "Budget enforcement: estimated from configured pricing";
+    default:
+      return "Budget enforcement: usage-only / unknown pricing";
+  }
+}
+
+function ApprovalPayloadPreview({ payload }: { payload: unknown }) {
+  const [showFull, setShowFull] = React.useState(false);
+  const pretty = JSON.stringify(payload, null, 2);
+  const truncated = pretty.length > APPROVAL_PAYLOAD_PREVIEW_LIMIT;
+  const visiblePayload = showFull || !truncated
+    ? pretty
+    : `${pretty.slice(0, APPROVAL_PAYLOAD_PREVIEW_LIMIT)}\n... truncated in dashboard preview ...`;
+
+  return (
+    <details className="mt-2">
+      <summary className="cursor-pointer text-xs text-slate-500">Approval payload preview</summary>
+      <pre className="mt-1 max-h-96 overflow-auto rounded bg-slate-900 p-2 text-xs text-slate-400">
+        {visiblePayload}
+      </pre>
+      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+        <span>Large diffs are truncated here. Feather v0.1 uses simple full-replace diff previews.</span>
+        {truncated && (
+          <button
+            type="button"
+            onClick={() => setShowFull((current) => !current)}
+            className="text-slate-300 transition-colors hover:text-white"
+          >
+            {showFull ? "Show truncated preview" : "Show full payload"}
+          </button>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function HomePage() {
   const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 5000 });
   const { data: approvalData } = useQuery({ queryKey: ["approvals"], queryFn: () => api.approvals.list(), refetchInterval: 10000 });
@@ -408,12 +455,7 @@ function ApprovalsPage() {
                   <span className="font-medium text-white">{a.title}</span>
                 </div>
                 <p className="text-sm text-slate-400">{a.reason}</p>
-                <details className="mt-2">
-                  <summary className="text-xs text-slate-500 cursor-pointer">Raw payload</summary>
-                  <pre className="text-xs text-slate-400 mt-1 bg-slate-900 rounded p-2 overflow-x-auto">
-                    {JSON.stringify(a.payload, null, 2)}
-                  </pre>
-                </details>
+                <ApprovalPayloadPreview payload={a.payload} />
               </div>
               <div className="flex gap-2 shrink-0">
                 <button
@@ -510,6 +552,8 @@ type ProviderFormState = {
   model: string;
   baseUrl: string;
   maxTaskCents: string;
+  inputCentsPer1MTokens: string;
+  outputCentsPer1MTokens: string;
 };
 
 function createDefaultProviderForm(): ProviderFormState {
@@ -524,6 +568,8 @@ function createDefaultProviderForm(): ProviderFormState {
     model: "gpt-5.4-mini",
     baseUrl: "https://api.openai.com/v1",
     maxTaskCents: "",
+    inputCentsPer1MTokens: "",
+    outputCentsPer1MTokens: "",
   };
 }
 
@@ -539,6 +585,8 @@ function serializeProviderForm(form: ProviderFormState): Record<string, unknown>
           apiKeyEnv: form.apiKeyEnv,
           model: form.model,
           ...(form.maxTaskCents ? { maxTaskCents: Number(form.maxTaskCents) } : {}),
+          ...(form.inputCentsPer1MTokens ? { inputCentsPer1MTokens: Number(form.inputCentsPer1MTokens) } : {}),
+          ...(form.outputCentsPer1MTokens ? { outputCentsPer1MTokens: Number(form.outputCentsPer1MTokens) } : {}),
           ...(form.type === "openai" || form.type === "openai-compatible" ? { baseUrl: form.baseUrl } : {}),
         }),
   };
@@ -570,6 +618,12 @@ function providerToForm(provider: {
         ? "https://openrouter.ai/api/v1"
         : "https://api.openai.com/v1",
     maxTaskCents: typeof provider.config.maxTaskCents === "number" ? String(provider.config.maxTaskCents) : "",
+    inputCentsPer1MTokens: typeof provider.config.inputCentsPer1MTokens === "number"
+      ? String(provider.config.inputCentsPer1MTokens)
+      : "",
+    outputCentsPer1MTokens: typeof provider.config.outputCentsPer1MTokens === "number"
+      ? String(provider.config.outputCentsPer1MTokens)
+      : "",
   };
 }
 
@@ -632,10 +686,13 @@ function ProvidersPage() {
               <input value={form.apiKeyEnv} onChange={(e) => setForm((current) => ({ ...current, apiKeyEnv: e.target.value }))} placeholder="API key env var" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
             )}
             {form.type === "codex-cli" ? (
-              <select value={form.mode} onChange={(e) => setForm((current) => ({ ...current, mode: e.target.value as ProviderFormState["mode"] }))} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white">
-                <option value="exec">exec</option>
-                <option value="apply">apply</option>
-              </select>
+              <div className="space-y-2">
+                <select value={form.mode} onChange={(e) => setForm((current) => ({ ...current, mode: e.target.value as ProviderFormState["mode"] }))} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white">
+                  <option value="exec">exec</option>
+                  <option value="apply">apply</option>
+                </select>
+                <div className="text-xs text-slate-500">Mode is currently informational only and does not bypass Feather approvals.</div>
+              </div>
             ) : (
               <input value={form.model} onChange={(e) => setForm((current) => ({ ...current, model: e.target.value }))} placeholder="model" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
             )}
@@ -643,7 +700,16 @@ function ProvidersPage() {
               <input value={form.baseUrl} onChange={(e) => setForm((current) => ({ ...current, baseUrl: e.target.value }))} placeholder="base url" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2" />
             )}
             {form.type !== "codex-cli" && (
-              <input value={form.maxTaskCents} onChange={(e) => setForm((current) => ({ ...current, maxTaskCents: e.target.value }))} placeholder="max task cents (optional)" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2" />
+              <>
+                <input value={form.maxTaskCents} onChange={(e) => setForm((current) => ({ ...current, maxTaskCents: e.target.value }))} placeholder="max task cents (optional)" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2" />
+                <div className="md:col-span-2 rounded border border-slate-700 bg-slate-900/60 p-3 text-xs text-slate-400">
+                  <div>Optional pricing for budget estimates.</div>
+                  <div>Leave blank if you do not know the provider pricing.</div>
+                  <div>Without pricing, Feather can record token usage but cannot enforce hard spend limits.</div>
+                </div>
+                <input value={form.inputCentsPer1MTokens} onChange={(e) => setForm((current) => ({ ...current, inputCentsPer1MTokens: e.target.value }))} placeholder="input cents per 1M tokens (optional)" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+                <input value={form.outputCentsPer1MTokens} onChange={(e) => setForm((current) => ({ ...current, outputCentsPer1MTokens: e.target.value }))} placeholder="output cents per 1M tokens (optional)" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+              </>
             )}
             <label className="md:col-span-2 flex items-center gap-2 text-sm text-slate-300">
               <input type="checkbox" checked={form.enabled} onChange={(e) => setForm((current) => ({ ...current, enabled: e.target.checked }))} className="rounded border-slate-600 bg-slate-900 text-feather-500" />
@@ -680,6 +746,14 @@ function ProvidersPage() {
                   {p.capabilities?.coding && <Badge variant="success">coding</Badge>}
                   {p.capabilities?.costEstimate && <Badge variant="default">cost</Badge>}
                 </div>
+                <div className="mt-3 space-y-1 text-xs text-slate-400">
+                  <div>Streaming: {p.capabilities?.streaming ? "yes" : "no"}</div>
+                  <div>Coding: {p.capabilities?.coding ? "yes" : "no"}</div>
+                  <div>Native tool calling: {p.capabilities?.toolCalling ? "yes" : "no"}</div>
+                  <div>Cost enforcement: {formatCostMode(p.costEnforcementMode)}</div>
+                  <div>{getBudgetEnforcementLabel(p.costEnforcementMode)}</div>
+                </div>
+                <div className="mt-2 text-xs text-slate-500">{p.budgetWarning}</div>
                 <div className="text-xs text-slate-500 mt-2 font-mono break-all">{JSON.stringify(p.config)}</div>
                 {testResults[p.id] && (
                   <div className={clsx("text-xs mt-2", testResults[p.id]!.ok ? "text-emerald-400" : "text-red-400")}>
@@ -714,18 +788,37 @@ function ProvidersPage() {
 }
 
 function BudgetsPage() {
+  const { data: providerData } = useQuery({ queryKey: ["providers"], queryFn: api.providers.list });
   const { data } = useQuery({ queryKey: ["daily-spend"], queryFn: () => api.budgets.dailySpend(), refetchInterval: 30000 });
 
   return (
     <div className="p-6 space-y-4">
       <h1 className="text-2xl font-bold text-white">Budgets</h1>
       <Card>
-        <div className="text-slate-400 text-sm mb-1">Today's spend</div>
+        <div className="text-slate-400 text-sm mb-1">Today's estimated spend</div>
         <div className="text-2xl font-bold text-white">
-          £{((data?.dailySpendCents ?? 0) / 100).toFixed(4)}
+          ${((data?.dailySpendCents ?? 0) / 100).toFixed(2)}
         </div>
-        <div className="text-xs text-slate-500 mt-1">Estimated from provider token usage</div>
+        <div className="text-xs text-slate-500 mt-1">Only providers with configured pricing contribute estimated spend. Providers with unknown pricing still record token usage.</div>
       </Card>
+
+      <div className="space-y-2">
+        {providerData?.providers.map((provider) => (
+          <Card key={provider.id}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="font-medium text-white">{provider.name}</div>
+                <div className="mt-1 text-sm text-slate-400">{getBudgetEnforcementLabel(provider.costEnforcementMode)}</div>
+                <div className="mt-1 text-xs text-slate-500">Mode: {formatCostMode(provider.costEnforcementMode)}</div>
+                <div className="mt-2 text-xs text-slate-500">{provider.budgetWarning}</div>
+              </div>
+              <Badge variant={provider.costEnforcementMode === "unknown" ? "warning" : "success"}>
+                {formatCostMode(provider.costEnforcementMode)}
+              </Badge>
+            </div>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
@@ -957,10 +1050,13 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
                   <input value={providerForm.apiKeyEnv} onChange={(e) => setProviderForm((current) => ({ ...current, apiKeyEnv: e.target.value }))} placeholder="API key env var" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
                 )}
                 {providerForm.type === "codex-cli" ? (
-                  <select value={providerForm.mode} onChange={(e) => setProviderForm((current) => ({ ...current, mode: e.target.value as ProviderFormState["mode"] }))} className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
-                    <option value="exec">exec</option>
-                    <option value="apply">apply</option>
-                  </select>
+                  <div className="space-y-2">
+                    <select value={providerForm.mode} onChange={(e) => setProviderForm((current) => ({ ...current, mode: e.target.value as ProviderFormState["mode"] }))} className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
+                      <option value="exec">exec</option>
+                      <option value="apply">apply</option>
+                    </select>
+                    <div className="text-xs text-slate-500">Mode is currently informational only and does not bypass Feather approvals.</div>
+                  </div>
                 ) : (
                   <input value={providerForm.model} onChange={(e) => setProviderForm((current) => ({ ...current, model: e.target.value }))} placeholder="model" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
                 )}
@@ -968,7 +1064,16 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
                   <input value={providerForm.baseUrl} onChange={(e) => setProviderForm((current) => ({ ...current, baseUrl: e.target.value }))} placeholder="base URL" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white md:col-span-2" />
                 )}
                 {providerForm.type !== "codex-cli" && (
-                  <input value={providerForm.maxTaskCents} onChange={(e) => setProviderForm((current) => ({ ...current, maxTaskCents: e.target.value }))} placeholder="max task cents (optional)" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white md:col-span-2" />
+                  <>
+                    <input value={providerForm.maxTaskCents} onChange={(e) => setProviderForm((current) => ({ ...current, maxTaskCents: e.target.value }))} placeholder="max task cents (optional)" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white md:col-span-2" />
+                    <div className="rounded border border-slate-700 bg-slate-900/60 p-3 text-xs text-slate-400 md:col-span-2">
+                      <div>Optional pricing for budget estimates.</div>
+                      <div>Leave blank if you do not know the provider pricing.</div>
+                      <div>Without pricing, Feather can record token usage but cannot enforce hard spend limits.</div>
+                    </div>
+                    <input value={providerForm.inputCentsPer1MTokens} onChange={(e) => setProviderForm((current) => ({ ...current, inputCentsPer1MTokens: e.target.value }))} placeholder="input cents per 1M tokens (optional)" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+                    <input value={providerForm.outputCentsPer1MTokens} onChange={(e) => setProviderForm((current) => ({ ...current, outputCentsPer1MTokens: e.target.value }))} placeholder="output cents per 1M tokens (optional)" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+                  </>
                 )}
               </div>
             )}

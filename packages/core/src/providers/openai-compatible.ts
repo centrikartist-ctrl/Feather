@@ -17,6 +17,24 @@ export type OpenAICompatibleConfig = {
   outputCentsPer1MTokens?: number;
 };
 
+export function calculateEstimatedCents(
+  usage: { inputTokens?: number; outputTokens?: number },
+  pricing: { inputCentsPer1MTokens?: number; outputCentsPer1MTokens?: number },
+): number | undefined {
+  const inputCentsPer1M = pricing.inputCentsPer1MTokens;
+  const outputCentsPer1M = pricing.outputCentsPer1MTokens;
+  if (inputCentsPer1M === undefined || outputCentsPer1M === undefined) {
+    return undefined;
+  }
+
+  const inputTok = usage.inputTokens ?? 0;
+  const outputTok = usage.outputTokens ?? 0;
+  return Math.ceil(
+    (inputTok / 1_000_000) * inputCentsPer1M +
+    (outputTok / 1_000_000) * outputCentsPer1M,
+  );
+}
+
 export class OpenAICompatibleProvider implements ProviderAdapter {
   id: string;
   name: string;
@@ -175,18 +193,13 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
             }
 
             if (parsed.usage) {
-              // Calculate estimatedCents only when pricing is configured.
-              let estimatedCents: number | undefined;
-              const inputCentsPer1M = this.config.inputCentsPer1MTokens;
-              const outputCentsPer1M = this.config.outputCentsPer1MTokens;
-              if (inputCentsPer1M !== undefined && outputCentsPer1M !== undefined) {
-                const inputTok = parsed.usage.prompt_tokens ?? 0;
-                const outputTok = parsed.usage.completion_tokens ?? 0;
-                estimatedCents = Math.ceil(
-                  (inputTok / 1_000_000) * inputCentsPer1M +
-                  (outputTok / 1_000_000) * outputCentsPer1M,
-                );
-              }
+              const estimatedCents = calculateEstimatedCents(
+                {
+                  inputTokens: parsed.usage.prompt_tokens,
+                  outputTokens: parsed.usage.completion_tokens,
+                },
+                this.config,
+              );
               yield {
                 type: "cost_estimate",
                 inputTokens: parsed.usage.prompt_tokens,
