@@ -21,6 +21,10 @@ export type GlobalConfig = {
   logLevel: string;
   telegramBotToken?: string;
   allowedTelegramUserIds?: number[];
+  providers?: {
+    globalDefaultProviderId?: string;
+    allowSingleProviderAutoRoute?: boolean;
+  };
   panicMode?: boolean;
   onboarding?: {
     machineSetupCompleted?: boolean;
@@ -37,6 +41,9 @@ const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   dbPath: path.join(getFeatherHomeDir(), "feather.db"),
   daemonPort: 47383,
   logLevel: "info",
+  providers: {
+    allowSingleProviderAutoRoute: false,
+  },
 };
 
 export function getFeatherHomeDir(): string {
@@ -71,7 +78,24 @@ export function loadGlobalConfig(): GlobalConfig {
   }
   const raw = fs.readFileSync(configPath, "utf8");
   const parsed = yaml.load(raw) as Partial<GlobalConfig>;
-  return { ...DEFAULT_GLOBAL_CONFIG, ...parsed };
+  return {
+    ...DEFAULT_GLOBAL_CONFIG,
+    ...parsed,
+    providers: {
+      ...(DEFAULT_GLOBAL_CONFIG.providers ?? {}),
+      ...(parsed.providers ?? {}),
+    },
+  };
+}
+
+export function getProviderRoutingConfig(config: GlobalConfig): {
+  globalDefaultProviderId?: string;
+  allowSingleProviderAutoRoute: boolean;
+} {
+  return {
+    globalDefaultProviderId: config.providers?.globalDefaultProviderId,
+    allowSingleProviderAutoRoute: config.providers?.allowSingleProviderAutoRoute === true,
+  };
 }
 
 export function saveGlobalConfig(config: GlobalConfig): void {

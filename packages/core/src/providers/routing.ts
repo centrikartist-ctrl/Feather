@@ -5,11 +5,22 @@ import type { ProjectService } from "../projects/index.js";
 export async function resolveTaskProviderId(options: {
   requestedProviderId?: string;
   projectId?: string;
+  globalDefaultProviderId?: string;
+  allowSingleProviderAutoRoute?: boolean;
+  /** @deprecated Use globalDefaultProviderId. Kept for backwards compatibility. */
   fallbackProviderId?: string;
   projects: ProjectService;
   providers: ProviderRegistry;
 }): Promise<string> {
-  const { requestedProviderId, projectId, fallbackProviderId, projects, providers } = options;
+  const {
+    requestedProviderId,
+    projectId,
+    globalDefaultProviderId,
+    allowSingleProviderAutoRoute = false,
+    fallbackProviderId,
+    projects,
+    providers,
+  } = options;
 
   if (requestedProviderId) {
     ensureProviderExists(providers, requestedProviderId, `Requested provider is not configured: ${requestedProviderId}`);
@@ -29,13 +40,18 @@ export async function resolveTaskProviderId(options: {
     }
   }
 
-  if (fallbackProviderId) {
-    ensureProviderExists(providers, fallbackProviderId, `Fallback provider is not configured: ${fallbackProviderId}`);
-    return fallbackProviderId;
+  const explicitGlobalDefaultProviderId = globalDefaultProviderId ?? fallbackProviderId;
+  if (explicitGlobalDefaultProviderId) {
+    ensureProviderExists(
+      providers,
+      explicitGlobalDefaultProviderId,
+      `Global default provider is not configured: ${explicitGlobalDefaultProviderId}`,
+    );
+    return explicitGlobalDefaultProviderId;
   }
 
   const configuredProviders = providers.list();
-  if (configuredProviders.length === 1) {
+  if (allowSingleProviderAutoRoute && configuredProviders.length === 1) {
     return configuredProviders[0]!.id;
   }
 
@@ -45,8 +61,8 @@ export async function resolveTaskProviderId(options: {
 
   throw new ValidationError(
     projectId
-      ? "No provider selected for this project. Set a coding provider on the project or pass a task provider explicitly."
-      : "Multiple providers are configured. Select a provider explicitly for this task.",
+      ? "No provider selected for this project. Set project coding/default provider, set providers.globalDefaultProviderId, pass a task provider explicitly, or enable providers.allowSingleProviderAutoRoute."
+      : "No provider selected. Pass a task provider explicitly, set providers.globalDefaultProviderId, or enable providers.allowSingleProviderAutoRoute.",
   );
 }
 

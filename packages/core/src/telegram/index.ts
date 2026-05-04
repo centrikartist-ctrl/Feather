@@ -34,6 +34,9 @@ import { resolveTaskProviderId } from "../providers/routing.js";
 export type TelegramConfig = {
   botToken: string;
   allowedUserIds: number[];
+  globalDefaultProviderId?: string;
+  allowSingleProviderAutoRoute?: boolean;
+  /** @deprecated Use globalDefaultProviderId. */
   defaultProviderId?: string;
 };
 
@@ -254,7 +257,8 @@ export class TelegramConnector {
 
     const providerId = await resolveTaskProviderId({
       projectId: project.id,
-      fallbackProviderId: this.config.defaultProviderId,
+      globalDefaultProviderId: this.config.globalDefaultProviderId ?? this.config.defaultProviderId,
+      allowSingleProviderAutoRoute: this.config.allowSingleProviderAutoRoute === true,
       projects: this.services.projects,
       providers: this.services.providers,
     });

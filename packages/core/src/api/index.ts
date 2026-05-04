@@ -23,7 +23,16 @@ import { getPanicState, activatePanic, deactivatePanic, assertNotPanic } from ".
 import { FeatherError } from "@feather/shared";
 import type { Logger } from "pino";
 import { resolveTaskProviderId } from "../providers/routing.js";
-import { getFeatherHomeDir, getGlobalAgentFilePath, getGlobalConfigPath, loadGlobalAgentInstructions, loadGlobalConfig, saveGlobalAgentInstructions, saveGlobalConfig } from "../config/index.js";
+import {
+  getFeatherHomeDir,
+  getGlobalAgentFilePath,
+  getGlobalConfigPath,
+  getProviderRoutingConfig,
+  loadGlobalAgentInstructions,
+  loadGlobalConfig,
+  saveGlobalAgentInstructions,
+  saveGlobalConfig,
+} from "../config/index.js";
 import { buildAgentMarkdown, deriveOnboardingState, extractAgentName, normalizeOnboardingList } from "../onboarding/index.js";
 
 export type ApiServices = {
@@ -163,6 +172,9 @@ export async function createApiServer(services: ApiServices) {
     saveGlobalConfig(globalConfig);
 
     let providerId = input.provider?.id;
+    let providerSelectionSource: "request" | "global-default" | "single-enabled-provider" | "none" = input.provider
+      ? "request"
+      : "none";
     if (input.provider) {
       await services.providerConfigs.upsert({
         id: input.provider.id,
@@ -199,8 +211,16 @@ export async function createApiServer(services: ApiServices) {
     }
 
     const enabledProviders = (await services.providerConfigs.list()).filter((provider) => provider.enabled);
+    const existingRoutingConfig = getProviderRoutingConfig(globalConfig);
     if (!providerId) {
-      providerId = enabledProviders[0]?.id;
+      const globalDefaultProviderId = existingRoutingConfig.globalDefaultProviderId;
+      if (globalDefaultProviderId && enabledProviders.some((provider) => provider.id === globalDefaultProviderId)) {
+        providerId = globalDefaultProviderId;
+        providerSelectionSource = "global-default";
+      } else if (enabledProviders.length === 1) {
+        providerId = enabledProviders[0]!.id;
+        providerSelectionSource = "single-enabled-provider";
+      }
     }
 
     if (input.project) {
@@ -241,6 +261,11 @@ export async function createApiServer(services: ApiServices) {
 
     saveGlobalConfig({
       ...globalConfig,
+      providers: {
+        ...(globalConfig.providers ?? {}),
+        ...(providerId ? { globalDefaultProviderId: providerId } : {}),
+        allowSingleProviderAutoRoute: globalConfig.providers?.allowSingleProviderAutoRoute === true,
+      },
       ...(input.telegram.enabled
         ? {
             telegramBotToken: effectiveTelegramToken,
@@ -260,6 +285,10 @@ export async function createApiServer(services: ApiServices) {
       ok: true,
       state: await getOnboardingState(services),
       requiresDaemonRestart: input.telegram.enabled,
+      routing: {
+        globalDefaultProviderId: providerId ?? null,
+        providerSelectionSource,
+      },
     };
   });
 
@@ -364,10 +393,13 @@ export async function createApiServer(services: ApiServices) {
     assertNotPanic();
 
     await services.budgets.checkDailyBudget(input.projectId);
+    const routingConfig = getProviderRoutingConfig(loadGlobalConfig());
 
     const providerId = await resolveTaskProviderId({
       requestedProviderId: input.providerId,
       projectId: input.projectId,
+      globalDefaultProviderId: routingConfig.globalDefaultProviderId,
+      allowSingleProviderAutoRoute: routingConfig.allowSingleProviderAutoRoute,
       projects: services.projects,
       providers: services.providers,
     });

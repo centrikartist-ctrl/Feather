@@ -1,6 +1,6 @@
 import pino from "pino";
 import { initDb } from "./db/index.js";
-import { loadGlobalConfig } from "./config/index.js";
+import { getProviderRoutingConfig, loadGlobalConfig } from "./config/index.js";
 import { ProjectService } from "./projects/index.js";
 import { ApprovalService } from "./approvals/index.js";
 import { TaskRunner } from "./task-runner/index.js";
@@ -70,6 +70,7 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
 
   // Start Telegram connector if configured
   const telegramToken = process.env["TELEGRAM_BOT_TOKEN"] ?? globalConfig.telegramBotToken;
+  const routingConfig = getProviderRoutingConfig(globalConfig);
   const telegramAllowedIds = process.env["TELEGRAM_ALLOWED_USER_IDS"];
   let telegram: TelegramConnector | undefined;
   if (telegramToken) {
@@ -78,7 +79,12 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
       : globalConfig.allowedTelegramUserIds ?? [];
     if (allowedUserIds.length > 0) {
       telegram = new TelegramConnector(
-        { botToken: telegramToken, allowedUserIds },
+        {
+          botToken: telegramToken,
+          allowedUserIds,
+          globalDefaultProviderId: routingConfig.globalDefaultProviderId,
+          allowSingleProviderAutoRoute: routingConfig.allowSingleProviderAutoRoute,
+        },
         { approvals, projects, tasks, budgets, heartbeat, providers },
       );
       telegram.start();

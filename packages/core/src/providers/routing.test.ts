@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 describe("resolveTaskProviderId", () => {
-  it("prefers explicit task override, then project provider, then the single configured provider", async () => {
+  it("prefers explicit task override, then project provider", async () => {
     const projectRoot = path.join(tempDir, "project");
     fs.mkdirSync(projectRoot, { recursive: true });
     const project = await projects.addProject({ name: "routing-project", rootPath: projectRoot });
@@ -51,6 +51,32 @@ describe("resolveTaskProviderId", () => {
     providers.register(providers.fromConfig({ id: "one", type: "codex-cli" }));
     providers.register(providers.fromConfig({ id: "two", type: "codex-cli" }));
 
-    await expect(resolveTaskProviderId({ projects, providers })).rejects.toThrow(/Multiple providers/);
+    await expect(resolveTaskProviderId({ projects, providers })).rejects.toThrow(/globalDefaultProviderId|allowSingleProviderAutoRoute/);
+  });
+
+  it("uses explicit global default provider when project is not pinned", async () => {
+    providers.register(providers.fromConfig({ id: "global-default", type: "codex-cli" }));
+    providers.register(providers.fromConfig({ id: "other", type: "codex-cli" }));
+
+    await expect(resolveTaskProviderId({
+      globalDefaultProviderId: "global-default",
+      projects,
+      providers,
+    })).resolves.toBe("global-default");
+  });
+
+  it("does not silently route to a single provider unless auto-route is enabled", async () => {
+    providers.register(providers.fromConfig({ id: "only-provider", type: "codex-cli" }));
+
+    await expect(resolveTaskProviderId({
+      projects,
+      providers,
+    })).rejects.toThrow(/providers\.globalDefaultProviderId|allowSingleProviderAutoRoute/);
+
+    await expect(resolveTaskProviderId({
+      allowSingleProviderAutoRoute: true,
+      projects,
+      providers,
+    })).resolves.toBe("only-provider");
   });
 });

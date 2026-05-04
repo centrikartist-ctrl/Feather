@@ -20,7 +20,8 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
   type = "openai-compatible";
   capabilities: ProviderCapabilities = {
     streaming: true,
-    toolCalling: true,
+    // Feather currently handles tool execution internally; OpenAI-compatible providers do not expose native tool-calling yet.
+    toolCalling: false,
     coding: true,
     reasoning: false,
     costEstimate: true,
