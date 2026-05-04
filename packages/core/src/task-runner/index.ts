@@ -172,6 +172,7 @@ export class TaskRunner {
         prompt: row.prompt,
         ...(systemPrompt ? { systemPrompt } : {}),
         ...(row.budgetCents !== null && row.budgetCents !== undefined ? { budgetCents: row.budgetCents } : {}),
+        signal: state.controller.signal,
       })) {
         this.throwIfInterrupted(taskId, state);
         await this.handleProviderEvent(taskId, state, provider.id, event);
@@ -192,15 +193,15 @@ export class TaskRunner {
     }
   }
 
-  async recoverTasksOnStartup(): Promise<{ resumedQueued: number; restartedRunning: number; pendingApproval: number }> {
+  async recoverTasksOnStartup(): Promise<{ keptQueued: number; cancelledRunning: number; pendingApproval: number }> {
     const db = getDb();
     const rows = await db
       .select()
       .from(tasks)
       .where(inArray(tasks.status, ["queued", "running", "awaiting_approval"]));
 
-    let resumedQueued = 0;
-    let restartedRunning = 0;
+    let keptQueued = 0;
+    let cancelledRunning = 0;
     let pendingApproval = 0;
 
     for (const row of rows) {
@@ -209,37 +210,37 @@ export class TaskRunner {
       }
 
       if (row.status === "queued") {
+        // Conservative: do NOT auto-run queued tasks on restart. Leave them queued for manual trigger.
         this.emit(row.id, {
           type: "message",
           role: "system",
-          content: "Task recovered from daemon restart and resumed from the queue.",
+          content: "Task was queued when the daemon restarted. It remains queued and will not auto-run. Trigger it manually to resume.",
         });
-        resumedQueued += 1;
-        void this.runTask(row.id);
+        keptQueued += 1;
         continue;
       }
 
       if (row.status === "running") {
-        await this.updateTaskStatus(row.id, "queued");
+        // Mark as cancelled — we cannot safely resume mid-execution.
+        await this.updateTaskStatus(row.id, "cancelled");
         this.emit(row.id, {
-          type: "message",
-          role: "system",
-          content: "Task was interrupted by daemon restart and is restarting from its saved prompt.",
+          type: "error",
+          message: "Task was running when the daemon restarted and has been marked cancelled. No work was auto-resumed.",
         });
-        restartedRunning += 1;
-        void this.runTask(row.id);
+        cancelledRunning += 1;
         continue;
       }
 
+      // awaiting_approval — leave the task in place; the approval resolver handles restart.
       this.emit(row.id, {
         type: "message",
         role: "system",
-        content: "Task was awaiting approval during daemon restart. Resolving the approval will restart it from its saved prompt.",
+        content: "Task was awaiting approval when the daemon restarted. Resolving the approval will restart it from its saved prompt.",
       });
       pendingApproval += 1;
     }
 
-    return { resumedQueued, restartedRunning, pendingApproval };
+    return { keptQueued, cancelledRunning, pendingApproval };
   }
 
   async handleRecoveredApprovalResolution(approval: Approval): Promise<boolean> {
@@ -440,6 +441,9 @@ export class TaskRunner {
 
     if (tool.risk === "safe") {
       const result = await tool.execute();
+      if (result.diff) {
+        this.emit(taskId, { type: "diff", path: extractPathFromInput(input), diff: result.diff });
+      }
       this.emit(taskId, { type: "tool_result", toolId: toolName, actionId, output: result.output ?? result.error ?? null });
       if (!result.ok) {
         throw new Error(result.error ?? `Tool failed: ${toolName}`);
@@ -473,6 +477,9 @@ export class TaskRunner {
     this.throwIfInterrupted(taskId, state);
     await this.updateTaskStatus(taskId, "running");
     const result = await tool.execute();
+    if (result.diff) {
+      this.emit(taskId, { type: "diff", path: extractPathFromInput(input), diff: result.diff });
+    }
     this.emit(taskId, { type: "tool_result", toolId: toolName, actionId, output: result.output ?? result.error ?? null });
     if (!result.ok) {
       throw new Error(result.error ?? `Tool failed: ${toolName}`);
@@ -531,7 +538,8 @@ export class TaskRunner {
           title: `Run shell command: ${fullCommand}`,
           reason: check?.reason ?? "Provider requested shell execution.",
           actionType: "shell",
-          risk: check?.requiresApproval ? "review" : "safe",
+          // Default to "review" when no permissions service: unknown shell commands should not auto-execute.
+          risk: check?.requiresApproval ? "review" : (permissions !== undefined ? "safe" : "review"),
           execute: () => runCommand(input, { projectRoot, permissions }),
         };
       }
@@ -626,6 +634,15 @@ function normalizeRisk(value: unknown): RiskLevel {
     return value;
   }
   return "review";
+}
+
+
+
+function extractPathFromInput(input: unknown): string {
+  if (typeof input === "object" && input !== null && "path" in input && typeof (input as Record<string, unknown>)["path"] === "string") {
+    return (input as Record<string, unknown>)["path"] as string;
+  }
+  return "";
 }
 
 function rowToTask(row: typeof tasks.$inferSelect): Task {

@@ -87,6 +87,12 @@ export type ProviderCapabilities = {
   reasoning: boolean;
   costEstimate: boolean;
   supportsProjectRoot: boolean;
+  /**
+   * "known"    — provider returns accurate token/cost data every time.
+   * "estimated" — provider returns usage data but it may be approximated.
+   * "unknown"  — provider produces no cost data; budget enforcement is best-effort only.
+   */
+  costEnforcementMode?: "known" | "estimated" | "unknown";
 };
 
 export type ProviderHealth = {
@@ -101,6 +107,8 @@ export type TaskInput = {
   systemPrompt?: string;
   contextFiles?: Array<{ path: string; content: string }>;
   budgetCents?: number;
+  /** AbortSignal from the TaskRunner. Providers MUST stop yielding when this fires. */
+  signal?: AbortSignal;
 };
 
 export type ProviderEvent =

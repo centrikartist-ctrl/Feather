@@ -11,6 +11,7 @@ import { BudgetService } from "./budgets/index.js";
 import { createApiServer } from "./api/index.js";
 import { TelegramConnector } from "./telegram/index.js";
 import { FEATHER_HOST, FEATHER_PORT } from "@feather/shared";
+import { loadPanicStateFromDb, getPanicState } from "./panic/index.js";
 import path from "node:path";
 import os from "node:os";
 
@@ -25,6 +26,13 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
 
   initDb(dbPath);
 
+  // Restore panic state from DB BEFORE anything else so guards are correct.
+  await loadPanicStateFromDb();
+  const panicOnStartup = getPanicState();
+  if (panicOnStartup.active) {
+    logger.warn({ activatedAt: panicOnStartup.activatedAt }, "Daemon restarted while panic mode was active — holding in panic");
+  }
+
   const projects = new ProjectService();
   const approvals = new ApprovalService();
   const providers = new ProviderRegistry();
@@ -35,7 +43,7 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
 
   await providerConfigs.loadIntoRegistry();
   const recovery = await tasks.recoverTasksOnStartup();
-  if (recovery.resumedQueued > 0 || recovery.restartedRunning > 0 || recovery.pendingApproval > 0) {
+  if (recovery.keptQueued > 0 || recovery.cancelledRunning > 0 || recovery.pendingApproval > 0) {
     logger.info({ recovery }, "Recovered persisted tasks after daemon startup");
   }
 
@@ -54,7 +62,11 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
   logger.info(`Feather daemon running at http://${FEATHER_HOST}:${port}`);
 
   // Start heartbeat in passive mode
-  heartbeat.start(30);
+  if (!panicOnStartup.active) {
+    heartbeat.start(30);
+  } else {
+    logger.warn("Heartbeat NOT started — panic mode is active. Resume with /resume confirm or deactivatePanic().");
+  }
 
   // Start Telegram connector if configured
   const telegramToken = process.env["TELEGRAM_BOT_TOKEN"] ?? globalConfig.telegramBotToken;
@@ -71,6 +83,23 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
       );
       telegram.start();
       logger.info({ allowedUserIds }, "Telegram connector started");
+
+      // P4: Wire approval notifications to Telegram.
+      approvals.setApprovalCreatedHook(async (approval) => {
+        const project = approval.projectId
+          ? await projects.getProject(approval.projectId).catch(() => null)
+          : null;
+        await telegram!.notifyApproval(
+          approval.id,
+          approval.title,
+          project?.name ?? "unknown",
+          approval.actionType,
+          approval.risk,
+          approval.reason,
+        ).catch((err: unknown) => {
+          logger.warn({ err }, "Failed to send Telegram approval notification");
+        });
+      });
     }
   }
 

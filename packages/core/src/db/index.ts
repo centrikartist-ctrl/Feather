@@ -181,6 +181,10 @@ function runMigrations(db: DB, sqlite: Database.Database): void {
   `);
 
   ensureColumn(sqlite, "tasks", "budget_cents", "ALTER TABLE tasks ADD COLUMN budget_cents INTEGER");
+  ensureColumn(sqlite, "observations", "dedupe_key", "ALTER TABLE observations ADD COLUMN dedupe_key TEXT");
+  ensureColumn(sqlite, "observations", "first_seen_at", "ALTER TABLE observations ADD COLUMN first_seen_at TEXT");
+  ensureColumn(sqlite, "observations", "last_seen_at", "ALTER TABLE observations ADD COLUMN last_seen_at TEXT");
+  ensureColumn(sqlite, "observations", "seen_count", "ALTER TABLE observations ADD COLUMN seen_count INTEGER NOT NULL DEFAULT 1");
 }
 
 function ensureColumn(sqlite: Database.Database, tableName: string, columnName: string, addColumnSql: string): void {

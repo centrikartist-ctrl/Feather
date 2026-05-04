@@ -25,6 +25,7 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
     reasoning: false,
     costEstimate: true,
     supportsProjectRoot: false,
+    costEnforcementMode: "estimated",
   };
   private activeTasks = new Map<string, AbortController>();
 
@@ -80,6 +81,14 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
     const timeout = setTimeout(() => controller.abort(), 120000);
     this.activeTasks.set(input.taskId, controller);
 
+    // P3: Bridge external signal so TaskRunner cancellation propagates into the fetch.
+    const onExternalAbort = (): void => controller.abort();
+    if (input.signal?.aborted) {
+      controller.abort();
+    } else {
+      input.signal?.addEventListener("abort", onExternalAbort, { once: true });
+    }
+
     const messages: Array<{ role: string; content: string }> = [];
 
     if (input.systemPrompt) {
@@ -110,6 +119,8 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
           model: this.config.model,
           messages,
           stream: true,
+          // P7: Request token usage in the stream so we can do accurate budget enforcement.
+          stream_options: { include_usage: true },
         }),
         signal: controller.signal,
       });
@@ -174,6 +185,7 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
       }
       yield { type: "error", error: `Request failed: ${String(err)}` };
     } finally {
+      input.signal?.removeEventListener("abort", onExternalAbort);
       clearTimeout(timeout);
       this.activeTasks.delete(input.taskId);
     }

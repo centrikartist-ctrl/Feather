@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { panicLog } from "../db/schema.js";
 import type { PanicState } from "@feather/shared";
@@ -40,4 +40,36 @@ export async function deactivatePanic(): Promise<void> {
     event: JSON.stringify({ type: "panic_deactivated" }),
     createdAt: new Date().toISOString(),
   });
+}
+
+/**
+ * Restore panic state from the database after a daemon restart.
+ * Must be called once, BEFORE recoverTasksOnStartup, after initDb().
+ */
+export async function loadPanicStateFromDb(): Promise<void> {
+  const db = getDb();
+  // Get the most recent panic log entry
+  const rows = await db
+    .select()
+    .from(panicLog)
+    .orderBy(sql`rowid DESC`)
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return;
+
+  const event = JSON.parse(row.event) as { type: string; reason?: string };
+  if (event.type === "panic_activated") {
+    _panicActive = true;
+    _panicActivatedAt = row.createdAt;
+  } else {
+    _panicActive = false;
+    _panicActivatedAt = undefined;
+  }
+}
+
+/** Reset in-memory panic state. For use in tests only. */
+export function _resetPanicForTesting(): void {
+  _panicActive = false;
+  _panicActivatedAt = undefined;
 }

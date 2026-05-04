@@ -1,5 +1,5 @@
-import { nanoid } from "nanoid";
-import { and, eq, gte, lt } from "drizzle-orm";
+﻿import { nanoid } from "nanoid";
+import { and, eq, gte, lt, isNotNull } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { heartbeatRuns, observations } from "../db/schema.js";
 import type { Observation, SuggestedAction } from "@feather/shared";
@@ -13,9 +13,15 @@ export type HeartbeatCheckResult = {
   observations: Omit<Observation, "id" | "createdAt">[];
 };
 
+type HeartbeatObservation = Omit<Observation, "id" | "createdAt"> & {
+  /** Stable key for deduplication: "<projectId>:<checkId>" */
+  dedupeKey?: string;
+};
+
 const OBSERVATION_RETENTION_DAYS = 7;
 const OBSERVATION_DEDUPE_WINDOW_HOURS = 6;
 const PROJECT_CHECK_TIMEOUT_MS = 10000;
+const HEARTBEAT_CONCURRENCY = 2;
 
 export class HeartbeatService {
   private isRunning = false;
@@ -64,14 +70,15 @@ export class HeartbeatService {
     try {
       const projectList = await this.projects.listProjects();
 
-      for (const project of projectList) {
+      // Filter projects that should run, then process with concurrency limit.
+      const projectsToCheck = projectList.filter((project) => {
         const config = loadProjectFileConfig(project.rootPath);
-        if (!this.shouldRunProject(project, config, options.manual === true)) {
-          continue;
-        }
+        return this.shouldRunProject(project, config, options.manual === true);
+      });
 
+      await runWithConcurrencyLimit(projectsToCheck, HEARTBEAT_CONCURRENCY, async (project) => {
         scannedProjects += 1;
-
+        const config = loadProjectFileConfig(project.rootPath);
         try {
           const projectObservations = await withTimeout(
             this.collectProjectObservations(project, config),
@@ -89,11 +96,31 @@ export class HeartbeatService {
             suggestedActions: [],
           });
         }
-      }
+      });
 
       let persistedCount = 0;
-      for (const obs of collectedObservations) {
-        if (await this.isDuplicateObservation(obs)) {
+      const now = new Date().toISOString();
+      for (const obs of collectedObservations as HeartbeatObservation[]) {
+        if (obs.dedupeKey) {
+          const existing = await db
+            .select()
+            .from(observations)
+            .where(eq(observations.dedupeKey, obs.dedupeKey))
+            .limit(1);
+          if (existing.length > 0 && existing[0]) {
+            // Update the existing observation (seen again).
+            await db
+              .update(observations)
+              .set({
+                lastSeenAt: now,
+                seenCount: (existing[0].seenCount ?? 1) + 1,
+                body: obs.body,
+                severity: obs.severity,
+              })
+              .where(eq(observations.id, existing[0].id));
+            continue;
+          }
+        } else if (await this.isDuplicateObservation(obs)) {
           continue;
         }
 
@@ -105,7 +132,11 @@ export class HeartbeatService {
           title: obs.title,
           body: obs.body,
           suggestedActionsJson: JSON.stringify(obs.suggestedActions),
-          createdAt: new Date().toISOString(),
+          createdAt: now,
+          dedupeKey: obs.dedupeKey ?? null,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          seenCount: 1,
         });
         persistedCount += 1;
       }
@@ -198,8 +229,8 @@ export class HeartbeatService {
   private async collectProjectObservations(
     project: Awaited<ReturnType<ProjectService["getProject"]>>,
     config: ReturnType<typeof loadProjectFileConfig>,
-  ): Promise<Array<Omit<Observation, "id" | "createdAt">>> {
-    const collected: Array<Omit<Observation, "id" | "createdAt">> = [];
+  ): Promise<HeartbeatObservation[]> {
+    const collected: HeartbeatObservation[] = [];
     const checks = (config?.heartbeat as { checks?: { git_dirty?: boolean; pending_approvals?: boolean } } | undefined)?.checks;
 
     if (checks?.git_dirty !== false) {
@@ -221,6 +252,7 @@ export class HeartbeatService {
                 requiresApproval: false,
               },
             ],
+            dedupeKey: `${project.id}:git_dirty`,
           });
         }
       }
@@ -236,6 +268,7 @@ export class HeartbeatService {
           title: `${project.name} has ${pending.length} pending approval(s)`,
           body: pending.map((approval) => `• ${approval.title} (${approval.risk})`).join("\n"),
           suggestedActions: [],
+          dedupeKey: `${project.id}:pending_approvals`,
         });
       }
     }
@@ -301,5 +334,17 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
     }
+  }
+}
+
+async function runWithConcurrencyLimit<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  // Process items in batches of `limit` in parallel.
+  for (let i = 0; i < items.length; i += limit) {
+    const batch = items.slice(i, i + limit);
+    await Promise.all(batch.map(fn));
   }
 }

@@ -324,7 +324,7 @@ describe("TaskRunner", () => {
     expect(runner.getListenerCount()).toBe(0);
   });
 
-  it("restarts queued and running tasks during startup recovery", async () => {
+  it("keeps queued tasks queued and cancels running tasks during startup recovery", async () => {
     const projectRoot = path.join(tempDir, "project-recovery");
     fs.mkdirSync(projectRoot, { recursive: true });
     const project = await projects.addProject({ name: "recovery-project", rootPath: projectRoot });
@@ -351,22 +351,15 @@ describe("TaskRunner", () => {
     await getDb().update(tasks).set({ status: "running" }).where(eq(tasks.id, runningTask.id));
 
     const recovery = await runner.recoverTasksOnStartup();
-    expect(recovery).toEqual({ resumedQueued: 1, restartedRunning: 1, pendingApproval: 0 });
+    expect(recovery).toEqual({ keptQueued: 1, cancelledRunning: 1, pendingApproval: 0 });
 
-    let finalQueued = await runner.getTask(queuedTask.id);
-    let finalRunning = await runner.getTask(runningTask.id);
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      if (finalQueued?.status === "completed" && finalRunning?.status === "completed") {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      finalQueued = await runner.getTask(queuedTask.id);
-      finalRunning = await runner.getTask(runningTask.id);
-    }
+    const finalQueued = await runner.getTask(queuedTask.id);
+    const finalRunning = await runner.getTask(runningTask.id);
 
-    expect(finalQueued?.status).toBe("completed");
-    expect(finalRunning?.status).toBe("completed");
-    expect(provider.runCount).toBe(2);
+    // Conservative recovery: queued tasks stay queued; running tasks are cancelled.
+    expect(finalQueued?.status).toBe("queued");
+    expect(finalRunning?.status).toBe("cancelled");
+    expect(provider.runCount).toBe(0);
   });
 
   it("restarts an awaiting-approval task after approval is resolved post-restart", async () => {

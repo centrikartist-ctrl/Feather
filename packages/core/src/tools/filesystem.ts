@@ -112,9 +112,37 @@ export async function writeFile(
       fs.mkdirSync(dir, { recursive: true });
     }
 
+    // Read existing content for diff (before write).
+    const existingContent = fs.existsSync(resolved)
+      ? fs.readFileSync(resolved, "utf8")
+      : null;
+
     fs.writeFileSync(resolved, input.content, "utf8");
-    return { ok: true, output: `Written: ${input.path}` };
+
+    const diff =
+      existingContent !== null && existingContent !== input.content
+        ? computeSimpleDiff(existingContent, input.content, input.path)
+        : undefined;
+
+    return { ok: true, output: `Written: ${input.path}`, ...(diff !== undefined ? { diff } : {}) };
   } catch (err) {
     return { ok: false, error: String(err) };
   }
+}
+
+/**
+ * Produce a simple unified-style diff so reviewers can see what changed.
+ * Full-replace diff: all old lines shown as removed, all new as added.
+ * Sufficient for v0.1 approval previews.
+ */
+function computeSimpleDiff(oldContent: string, newContent: string, filePath: string): string {
+  const oldLines = oldContent.split("\n");
+  const newLines = newContent.split("\n");
+  return [
+    `--- a/${filePath}`,
+    `+++ b/${filePath}`,
+    `@@ -1,${oldLines.length} +1,${newLines.length} @@`,
+    ...oldLines.map((l) => `-${l}`),
+    ...newLines.map((l) => `+${l}`),
+  ].join("\n");
 }

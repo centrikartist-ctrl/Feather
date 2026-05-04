@@ -6,15 +6,19 @@
  * and allowed_user_ids are configured.
  *
  * Commands:
- *   /status
- *   /projects
- *   /task <project> <prompt>
- *   /approvals
- *   /approve <id>
- *   /reject <id>
- *   /recap <project>
- *   /heartbeat <project> on|off
- *   /budget
+ *   /status          - Daemon status + panic state
+ *   /projects        - List registered projects
+ *   /task <project> <prompt>  - Create a task
+ *   /approvals       - List pending approvals
+ *   /approve <id>    - Approve an action (once scope)
+ *   /reject <id>     - Reject an action
+ *   /recap <project> - Daily recap
+ *   /heartbeat <project> on|off - Toggle heartbeat
+ *   /budget          - Daily spend
+ *   /panic           - Activate panic mode (cancels all tasks)
+ *   /resume confirm  - Deactivate panic mode
+ *   /cancel <taskId> - Cancel a specific task
+ *   /help            - Command reference
  */
 
 import https from "node:https";
@@ -24,7 +28,7 @@ import type { TaskRunner } from "../task-runner/index.js";
 import type { BudgetService } from "../budgets/index.js";
 import type { HeartbeatService } from "../heartbeat/index.js";
 import type { ProviderRegistry } from "../providers/registry.js";
-import { getPanicState } from "../panic/index.js";
+import { getPanicState, activatePanic, deactivatePanic } from "../panic/index.js";
 import { resolveTaskProviderId } from "../providers/routing.js";
 
 export type TelegramConfig = {
@@ -182,16 +186,19 @@ export class TelegramConnector {
 
     try {
       switch (cmd) {
-        case "/status": await this.cmdStatus(chatId); break;
+        case "/status":   await this.cmdStatus(chatId); break;
         case "/projects": await this.cmdProjects(chatId); break;
-        case "/task": await this.cmdTask(chatId, args); break;
-        case "/approvals": await this.cmdApprovals(chatId); break;
-        case "/approve": await this.cmdApprove(chatId, args[0]); break;
-        case "/reject": await this.cmdReject(chatId, args[0]); break;
-        case "/recap": await this.cmdRecap(chatId, args[0]); break;
-        case "/heartbeat": await this.cmdHeartbeat(chatId, args); break;
-        case "/budget": await this.cmdBudget(chatId); break;
-        case "/help": await this.cmdHelp(chatId); break;
+        case "/task":     await this.cmdTask(chatId, args); break;
+        case "/approvals":await this.cmdApprovals(chatId); break;
+        case "/approve":  await this.cmdApprove(chatId, args[0]); break;
+        case "/reject":   await this.cmdReject(chatId, args[0]); break;
+        case "/recap":    await this.cmdRecap(chatId, args[0]); break;
+        case "/heartbeat":await this.cmdHeartbeat(chatId, args); break;
+        case "/budget":   await this.cmdBudget(chatId); break;
+        case "/help":     await this.cmdHelp(chatId); break;
+        case "/panic":    await this.cmdPanic(chatId); break;
+        case "/resume":   await this.cmdResume(chatId, args); break;
+        case "/cancel":   await this.cmdCancelTask(chatId, args[0]); break;
         default:
           await sendMessage(this.config.botToken, chatId, "Unknown command. Use /help.");
       }
@@ -352,8 +359,37 @@ export class TelegramConnector {
       "/heartbeat <project> on|off — Toggle heartbeat",
       "/budget — Daily spend",
       "/help — This message",
+      "",
+      "*Safety commands*",
+      "/panic — Activate panic mode (cancels all tasks)",
+      "/resume confirm — Deactivate panic mode",
+      "/cancel <taskId> — Cancel a specific task",
     ];
     await sendMessage(this.config.botToken, chatId, lines.join("\n"));
+  }
+
+  private async cmdPanic(chatId: number): Promise<void> {
+    await activatePanic("Telegram /panic command");
+    await this.services.tasks.cancelAllActive("panic");
+    await sendMessage(this.config.botToken, chatId, "🚨 Panic mode activated. All active tasks have been cancelled. Send /resume confirm to resume.");
+  }
+
+  private async cmdResume(chatId: number, args: string[]): Promise<void> {
+    if (args[0] !== "confirm") {
+      await sendMessage(this.config.botToken, chatId, "⚠️ To deactivate panic mode, send exactly: /resume confirm");
+      return;
+    }
+    await deactivatePanic();
+    await sendMessage(this.config.botToken, chatId, "✅ Panic mode deactivated. Daemon is running normally.");
+  }
+
+  private async cmdCancelTask(chatId: number, taskId: string | undefined): Promise<void> {
+    if (!taskId) {
+      await sendMessage(this.config.botToken, chatId, "Usage: /cancel <taskId>");
+      return;
+    }
+    await this.services.tasks.cancelTask(taskId, "cancelled");
+    await sendMessage(this.config.botToken, chatId, `🛑 Task \`${taskId}\` cancelled.`);
   }
 
   /**
@@ -386,7 +422,11 @@ export class TelegramConnector {
       case "/help":
       case "/recap":
       case "/reject":
+      case "/panic":
+      case "/cancel":
         return true;
+      case "/resume":
+        return args[0] === "confirm";
       case "/heartbeat":
         return args[1] === "off";
       default:

@@ -51,6 +51,12 @@ export type CreateApprovalInput = {
 
 export class ApprovalService {
   private resolutionWaiters = new Map<string, Set<{ resolve: (approval: Approval) => void; reject: (error: Error) => void }>>();
+  private _approvalCreatedHook: ((approval: Approval) => void) | null = null;
+
+  /** Register a callback invoked whenever a new approval is created (e.g. to send Telegram alerts). */
+  setApprovalCreatedHook(hook: (approval: Approval) => void): void {
+    this._approvalCreatedHook = hook;
+  }
 
   async createApproval(input: CreateApprovalInput): Promise<Approval> {
     const id = nanoid();
@@ -70,7 +76,7 @@ export class ApprovalService {
       createdAt: now,
     });
 
-    return {
+    const approval: Approval = {
       id,
       ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
       ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
@@ -82,6 +88,9 @@ export class ApprovalService {
       status: "pending" as const,
       createdAt: now,
     };
+
+    this._approvalCreatedHook?.(approval);
+    return approval;
   }
 
   async requireApproval(input: CreateApprovalInput): Promise<never> {
@@ -217,7 +226,7 @@ export class ApprovalService {
     const db = getDb();
     const cutoff = new Date(Date.now() - olderThanHours * 60 * 60 * 1000).toISOString();
 
-    const result = await db
+    await db
       .update(approvals)
       .set({ status: "expired" })
       .where(and(eq(approvals.status, "pending"), eq(approvals.createdAt, cutoff)));

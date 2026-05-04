@@ -57,6 +57,11 @@ export const observations = sqliteTable("observations", {
   body: text("body").notNull(),
   suggestedActionsJson: text("suggested_actions_json").notNull(),
   createdAt: text("created_at").notNull(),
+  // Stable key for deduplication and upsert. Format: "<projectId>:<checkId>"
+  dedupeKey: text("dedupe_key"),
+  firstSeenAt: text("first_seen_at"),
+  lastSeenAt: text("last_seen_at"),
+  seenCount: integer("seen_count").notNull().default(1),
 });
 
 export const providerConfigs = sqliteTable("provider_configs", {
