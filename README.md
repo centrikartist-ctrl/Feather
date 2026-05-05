@@ -42,6 +42,8 @@ Status: alpha. The current build is usable for local experiments, but interfaces
 - Providers without pricing stay in usage-only / unknown-pricing mode.
 - File diffs are simple full-replace diffs in v0.1.
 - OpenAI-compatible native tool-calling is not implemented yet.
+- Telegram is command-style in v0.1; freeform chat is planned for v0.2.
+- Explicit memory and local skills are planned for v0.2, not in v0.1.
 - Desktop app packaging is not part of v0.1; Feather uses a local web dashboard.
 
 ---

@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+*.js.map
+*.d.ts.map
+
+# SQLite
+*.db
+*.db-wal
+*.db-shm
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Secrets
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+credentials.*
+secrets.*
+
+# Logs
+*.log
+logs/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Feather home
+.feather/
+
+# Local planning/spec files
+FEATHER_*PASS*.md
+FEATHER_*PLAN*.md
+FEATHER_*SPEC*.md
+Feather_Product_Spec_Updated.docx
+
+# Test coverage
+coverage/
+.nyc_output/
