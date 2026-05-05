@@ -1,4 +1,4 @@
-const API_BASE = "/api";
+const API_BASE = "";
 
 export type OnboardingState = {
   stage: "machine" | "agent" | "complete";
@@ -47,9 +47,13 @@ export type AgentProfileRequest = {
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const hasBody = options?.body !== undefined;
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: { "Content-Type": "application/json", ...options?.headers },
+    headers: {
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
+      ...options?.headers,
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
