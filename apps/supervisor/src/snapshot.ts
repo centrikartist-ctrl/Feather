@@ -23,7 +23,8 @@ const FORBIDDEN_BASENAMES = [
   "secrets.json",
 ];
 const FORBIDDEN_EXTENSIONS = new Set([".pem", ".key", ".p12", ".pfx", ".log"]);
-const SECRET_LINE_PATTERN = /(token|api[_-]?key|secret|password)\s*:/i;
+const SECRET_KEY_PATTERN = /(?:token|api[_-]?key|apikey|secret|password)/i;
+const SECRET_ASSIGNMENT_PATTERN = /^(\s*["']?[\w.-]*(?:token|api[_-]?key|apikey|secret|password)[\w.-]*["']?\s*[:=]\s*)(["']?)(.*?)(["']?\s*,?\s*)$/i;
 
 export function createSnapshot(options: SnapshotOptions): SnapshotResult {
   const now = options.now ?? new Date();
@@ -65,8 +66,20 @@ export function isSafeSnapshotSource(filePath: string): boolean {
   if (parts.some((part) => FORBIDDEN_PATH_PARTS.has(part))) return false;
   const basename = path.basename(filePath).toLowerCase();
   if (FORBIDDEN_BASENAMES.includes(basename)) return false;
-  if (basename.startsWith(".env.")) return false;
+  if (basename === ".env" || basename.startsWith(".env.")) return false;
   return !FORBIDDEN_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+export function redactSnapshotSecrets(content: string): string {
+  return content
+    .split(/\r?\n/)
+    .map((line) => {
+      if (!SECRET_KEY_PATTERN.test(line)) {
+        return line;
+      }
+      return line.replace(SECRET_ASSIGNMENT_PATTERN, "$1$2REDACTED$4");
+    })
+    .join("\n");
 }
 
 function copyDirectoryIfSafe(sourceDir: string, targetDir: string, files: string[]): void {
@@ -86,10 +99,7 @@ function copyIfSafe(source: string, target: string, files: string[], options: { 
   if (!fs.existsSync(source) || !fs.statSync(source).isFile() || !isSafeSnapshotSource(source)) return;
   fs.mkdirSync(path.dirname(target), { recursive: true });
   if (options.redactSecrets) {
-    const redacted = fs.readFileSync(source, "utf8")
-      .split(/\r?\n/)
-      .map((line) => SECRET_LINE_PATTERN.test(line) ? line.replace(/:\s*.*/, ": REDACTED") : line)
-      .join("\n");
+    const redacted = redactSnapshotSecrets(fs.readFileSync(source, "utf8"));
     fs.writeFileSync(target, redacted, "utf8");
   } else {
     fs.copyFileSync(source, target);

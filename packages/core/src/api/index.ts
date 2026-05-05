@@ -191,6 +191,8 @@ export async function createApiServer(services: ApiServices) {
     app.log.error({ err: error }, "API request failed");
     if (error instanceof FeatherError) {
       void reply.status(error.statusCode).send({ error: error.message, code: error.code });
+    } else if (error instanceof z.ZodError) {
+      void reply.status(400).send({ error: "Invalid request body", issues: error.issues });
     } else {
       const statusCode = typeof (error as { statusCode?: unknown }).statusCode === "number"
         ? (error as { statusCode: number }).statusCode
@@ -831,7 +833,7 @@ async function getStructuredHealth(services: ApiServices) {
   return {
     ok: status === "healthy",
     status,
-    version: "0.1.0",
+    version: "0.1.0-alpha",
     bootId: process.env["FEATHER_BOOT_ID"] ?? `pid_${process.pid}`,
     uptimeMs: Math.round(process.uptime() * 1000),
     checks,

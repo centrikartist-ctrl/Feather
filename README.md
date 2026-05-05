@@ -2,28 +2,33 @@
 
 Feather is a lightweight local web harness for Codex/API-powered workflows.
 
-It gives builders a control layer around agents: projects, providers, approvals, panic mode, budgets, heartbeat checks, Telegram control, and daily recaps.
+It gives builders a control layer around agent work: projects, providers, approval gates, panic mode, budgets, heartbeat checks, Telegram control, explicit memory, local skills, and an external Guard supervisor foundation.
 
-Status: alpha. This is still an early supervised local operator build and should be treated as v0.01, not a release. It is usable for local experiments and small real tasks, but interfaces, provider behavior, and approval UX may still change between builds.
+Status: public alpha.
+
+Feather `v0.1.0-alpha` is usable for supervised local experiments and small real tasks, but APIs, provider behaviour, approval UX, Telegram routing, and Guard recovery flows may change quickly. This is not a production release.
 
 ---
 
-## What Feather is
+## What Feather Is
 
 - A localhost daemon plus web dashboard for running agent tasks against local projects
 - A permission and approval layer around filesystem, shell, git, and provider actions
-- A small operator surface for panic, budgets, heartbeat checks, and Telegram control
+- A small operator surface for panic, budgets, heartbeat checks, explicit memory, local skills, and Telegram control
 - A local harness that works with Codex CLI and API-style providers without requiring a heavy always-on desktop agent stack
+- A Guard supervisor MVP focused on health, locks, snapshots, and recovery foundations
 
-## What Feather is not
+## What Feather Is Not
 
 - Feather is not a replacement for Codex.
 - Feather is not an unrestricted desktop-control agent.
 - Feather is not a local LLM runtime.
+- Feather is not a production security product.
+- Feather is not a plugin marketplace, browser automation framework, remote agent cloud, or heavy agent OS.
 - Feather does not bypass Codex approvals.
 - Feather does not guarantee exact spend control unless provider pricing and usage data are configured.
 
-## Alpha safety guarantees
+## Alpha Safety Guarantees
 
 - Panic state is durable and survives daemon restart.
 - Panic state is also represented by a local `panic.lock` for the external Guard layer.
@@ -35,33 +40,46 @@ Status: alpha. This is still an early supervised local operator build and should
 - File write approvals include diff previews.
 - Review-risk shell commands require approval.
 - Telegram can activate panic, resume with confirmation, cancel tasks, and handle approvals.
-- The gateway now exposes structured `/health` and safe `/diagnostics/noop` endpoints for supervisor checks.
+- The gateway exposes structured `/health` and safe `/diagnostics/noop` endpoints for supervisor checks.
 - Feather Guard is a separate supervisor app under `apps/supervisor`; it is narrow lifecycle supervision, not a second agent.
+- Supervisor restart is disabled by default and only uses explicitly configured command + argv with shell execution disabled.
 
-## Known limitations
+## Guard MVP
 
+Feather Guard currently provides:
+
+- structured `/health`
+- safe `/diagnostics/noop`
+- local lifecycle locks
+- `panic.lock` integration
+- a separate `apps/supervisor` process
+- health polling and classification
+- unreachable-gateway detection
+- configured restart foundation, disabled by default
+- safe mode via `safe-mode.lock`
+- sanitized snapshot creation
+- a file-based lifecycle request queue foundation
+
+It does not yet provide full staged updates, real rollback, runtime manifest protection, signed releases, encrypted snapshots, OS-level separation, service installation, or supervisor Telegram notifications.
+
+## Known Limitations
+
+- Feather is not production-ready.
 - Codex process cancellation is best-effort.
 - OpenAI-compatible budget enforcement requires pricing fields and provider usage events.
 - Providers without pricing stay in usage-only / unknown-pricing mode.
-- File diffs are still simple full-replace diffs in v0.01.
-- OpenAI, OpenRouter, and OpenAI-compatible providers use a lightweight Feather tool protocol today; native provider tool-calling is not implemented yet.
+- File diffs are still simple full-replace diffs in this alpha.
+- OpenAI, OpenRouter, and OpenAI-compatible providers use a lightweight text-based `feather_tool` protocol today; native provider tool-calling is not implemented yet.
 - Tool-heavy API-provider tasks are still less predictable than Codex CLI and should be treated as supervised workflows.
-- Desktop app packaging is not part of v0.01; Feather uses a local web dashboard.
-- Feather Guard does not yet implement staged updates, rollback, runtime manifests, signed releases, encrypted snapshots, or OS-level user separation.
-
-## Current In-Progress Additions
-
-- Freeform Telegram routing for read-only questions, task proposals, panic/cancel, and approval responses.
-- Explicit editable memory with global and project scope.
-- Local skill files for reusable workflow instructions.
-- More configurable heartbeat modes, checks, cooldowns, and recap instructions.
-- External Guard supervision for health, diagnostics, locks, snapshots, safe mode, and future lifecycle requests.
+- Desktop app packaging is not part of `v0.1.0-alpha`; Feather uses a local web dashboard.
+- Snapshots are sanitized but not encrypted.
+- OS-level user separation and ACL hardening are not implemented.
 
 ---
 
-## Quick start
+## Quick Start
 
-**Requirements:** Node.js 20+, pnpm 9+
+Requirements: Node.js 20+, pnpm 9+
 
 ```sh
 pnpm install
@@ -73,7 +91,7 @@ pnpm dev
 
 If you want the packaged CLI flow instead, build first and then run `feather daemon start`.
 
-## Local setup flow
+## Local Setup Flow
 
 1. Run `pnpm dev`.
 2. Open the dashboard and finish onboarding.
@@ -82,9 +100,9 @@ If you want the packaged CLI flow instead, build first and then run `feather dae
 5. Optionally configure Telegram for approvals and panic control.
 6. Start tasks from the dashboard or CLI.
 
-Project-specific guidance still lives in `.feather/instructions.md`, and repository-local `AGENTS.md` is still loaded when present.
+Project-specific guidance lives in `.feather/instructions.md`, and repository-local `AGENTS.md` is loaded when present.
 
-## Providers and pricing
+## Providers And Pricing
 
 Feather currently supports:
 
@@ -110,55 +128,56 @@ Each project stores config in `.feather/project.yml`:
 
 ```yaml
 name: my-project
-codingProvider: codex-cli
+providers:
+  coding: codex-cli
 permissions:
-  allowedPaths: ["src/", "tests/"]
-  shellCommandAllow: ["npm test", "pnpm build"]
-  shellCommandReview: ["npm install *"]
+  filesystem:
+    read: ["."]
+    write: ["src", "docs", "tests"]
+    deny: [".env", ".env.*", "node_modules", ".git", "*.pem", "*.key"]
+  shell:
+    allow: ["pnpm test", "pnpm build", "git status", "git diff"]
+    require_approval: ["pnpm install *", "git commit *"]
+    deny: ["rm -rf *", "sudo *", "curl * | sh"]
 heartbeat:
   enabled: true
   mode: passive
   checks:
-    git_dirty: true
-    pending_approvals: true
-budget:
-  dailyLimitCents: 500
-  taskLimitCents: 100
+    git_dirty:
+      enabled: true
+      cooldownMinutes: 120
+    pending_approvals:
+      enabled: true
+      cooldownMinutes: 30
 ```
 
-## Dashboard and daemon
+## Dashboard And Daemon
 
 - `pnpm dev` starts the daemon plus dashboard HMR
 - The daemon API serves on localhost only
 - Built dashboard assets are served by the daemon after a production build
 
-## Telegram setup
+## Telegram Setup
 
 Use onboarding if you want the simplest path. Feather also supports environment-variable setup:
 
-1. Create a bot via [@BotFather](https://t.me/botfather)
-2. Set:
-
-```sh
-TELEGRAM_BOT_TOKEN=your_token
-TELEGRAM_ALLOWED_USER_IDS=123456789
-```
-
-3. Restart the daemon if you added credentials after it was already running
+1. Create a bot via [@BotFather](https://t.me/botfather).
+2. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS` locally.
+3. Restart the daemon if you added credentials after it was already running.
 
 Useful commands include `/status`, `/projects`, `/task <project> <prompt>`, `/approvals`, `/approve <id>`, `/reject <id>`, `/panic`, `/resume confirm`, `/budget`, and `/cancel <taskId>`.
 
 The current build also supports deterministic freeform Telegram messages for status, approvals, panic/cancel, and task proposals. Action-style plain messages create a confirmation instead of starting work immediately.
 
-## Explicit memory
+## Explicit Memory
 
-Feather now supports explicit global and project memories through the dashboard, API, and Telegram commands.
+Feather supports explicit global and project memories through the dashboard, API, and Telegram commands.
 
 - Memories are context only.
 - Memories do not grant permissions.
 - Memories do not bypass panic, approvals, budgets, denied paths, or secret blocking.
 
-## Local skills
+## Local Skills
 
 Skills are local Markdown workflow packs stored under `~/.feather/skills/` or `<project>/.feather/skills/`.
 
@@ -167,9 +186,9 @@ Skills are local Markdown workflow packs stored under `~/.feather/skills/` or `<
 - Selected skills are included in the task system prompt.
 - Tools outside the selected skill allowlist are blocked before execution.
 
-## Heartbeat personalization
+## Heartbeat Personalization
 
-Heartbeat stays supervised in this v0.01 build.
+Heartbeat stays supervised in this alpha.
 
 - `off` disables it
 - `manual` runs only on demand
@@ -178,7 +197,7 @@ Heartbeat stays supervised in this v0.01 build.
 
 Project heartbeat settings are editable in the dashboard and stored in `.feather/project.yml`.
 
-## Panic and resume
+## Panic And Resume
 
 - Dashboard panic stops active work and stops heartbeat
 - Telegram `/panic` does the same
@@ -189,26 +208,20 @@ Project heartbeat settings are editable in the dashboard and stored in `.feather
 
 ## Architecture
 
+```text
+Feather Guard Supervisor
+     |
+     | watches health, locks, snapshots
+     v
+Core Daemon / Gateway (Fastify, localhost)
+     |
+     | runs tasks through approval, permission, budget, and routing gates
+     v
+Providers / tools / projects
+
+Dashboard and CLI talk to the core daemon.
+Telegram is optional and uses the same daemon safety gates.
 ```
-CLI (feather)
-     ↓
-Core Daemon (Fastify, port 47383, localhost only)
-     ├── Project Registry
-     ├── Task Runner → Provider (Codex CLI / OpenAI / OpenRouter)
-     ├── Approval Queue
-     ├── Heartbeat Service
-     ├── Permission Service (per-project, default deny)
-     ├── Budget Service
-     ├── Panic Module
-     └── SQLite DB (~/.feather/feather.db)
-
-Dashboard (served by daemon on port 47383)
-Telegram Bot (optional, long-poll)
-```
-
-Customize agent instructions in `.feather/instructions.md`.
-
----
 
 ## Packages
 
@@ -218,8 +231,7 @@ Customize agent instructions in `.feather/instructions.md`.
 | `packages/core` | Daemon, DB, services, providers, tools, API |
 | `apps/cli` | `feather` CLI |
 | `apps/dashboard` | React web UI |
-
----
+| `apps/supervisor` | Feather Guard external supervisor MVP |
 
 ## Docs
 
@@ -230,6 +242,7 @@ Customize agent instructions in `.feather/instructions.md`.
 - [Provider adapters](docs/provider-adapters.md)
 - [Tool system](docs/tool-system.md)
 - [Heartbeat](docs/heartbeat.md)
+- [Feather Guard](docs/feather-guard.md)
 - [Telegram freeform](docs/telegram-freeform.md)
 - [Memory](docs/memory.md)
 - [Skills](docs/skills.md)
@@ -237,7 +250,7 @@ Customize agent instructions in `.feather/instructions.md`.
 - [Remote mode](docs/remote-mode.md)
 - [Roadmap](docs/roadmap.md)
 - [Alpha checklist](docs/ALPHA_CHECKLIST.md)
-- [current bug log](docs/V0_2_BUG_LOG.md)
+- [Current bug log](docs/V0_2_BUG_LOG.md)
 
 ---
 

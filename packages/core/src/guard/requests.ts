@@ -6,13 +6,6 @@ import { getFeatherHomeDir } from "../config/index.js";
 
 export const LifecycleRequestSchema = z.discriminatedUnion("type", [
   z.object({
-    type: z.literal("UPDATE_REQUEST"),
-    targetVersion: z.string().min(1),
-    requestedBy: z.string().min(1),
-    reason: z.string().min(1),
-    createdAt: z.string().datetime().optional(),
-  }),
-  z.object({
     type: z.literal("RESTART_REQUEST"),
     requestedBy: z.string().min(1),
     reason: z.string().min(1),
@@ -20,6 +13,12 @@ export const LifecycleRequestSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("PANIC_REQUEST"),
+    requestedBy: z.string().min(1),
+    reason: z.string().min(1),
+    createdAt: z.string().datetime().optional(),
+  }),
+  z.object({
+    type: z.literal("SNAPSHOT_REQUEST"),
     requestedBy: z.string().min(1),
     reason: z.string().min(1),
     createdAt: z.string().datetime().optional(),

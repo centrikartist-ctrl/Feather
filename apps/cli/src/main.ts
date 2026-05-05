@@ -22,7 +22,7 @@ const program = new Command();
 program
   .name("feather")
   .description("Feather — lightweight local harness for Codex/API agent workflows")
-  .version("0.1.0");
+  .version("0.1.0-alpha");
 
 // ── daemon ──────────────────────────────────────────────────────────────────
 const daemon = program.command("daemon");

@@ -31,6 +31,12 @@ export class FeatherSupervisor {
 
   async tick(): Promise<SupervisorState> {
     const locks = readGuardLocks();
+    if (locks["safe-mode.lock"].active) {
+      this.state = { ...this.state, classification: "safe_mode" };
+      this.logger.warn("Safe-mode lock active. Supervisor will not restart the gateway.");
+      return this.getState();
+    }
+
     if (locks["panic.lock"].active) {
       this.state = { ...this.state, classification: "critical" };
       this.logger.warn("Panic lock active. Supervisor will not restart or update the gateway.");

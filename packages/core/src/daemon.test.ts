@@ -7,6 +7,7 @@ import { startDaemon } from "./daemon.js";
 import { closeDb, getDb, initDb } from "./db/index.js";
 import { approvals, taskEvents, tasks } from "./db/schema.js";
 import { activatePanic, _resetPanicForTesting } from "./panic/index.js";
+import { upsertGuardLock } from "./guard/locks.js";
 
 const tempDirs: string[] = [];
 
@@ -101,6 +102,40 @@ describe("startDaemon", () => {
       expect(running?.status).toBe("running");
       expect(awaitingApproval?.status).toBe("awaiting_approval");
       expect(emittedEvents).toHaveLength(0);
+      expect((daemon.heartbeat as any).intervalHandle).toBeNull();
+    } finally {
+      await daemon.app.close();
+      closeDb();
+    }
+  });
+
+  it("respects panic.lock on startup even when DB panic state is inactive", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "feather-daemon-test-"));
+    tempDirs.push(tempDir);
+    const dbPath = path.join(tempDir, "daemon.db");
+
+    upsertGuardLock("panic.lock", "external panic");
+    initDb(dbPath);
+    const db = getDb();
+    const now = new Date().toISOString();
+    await db.insert(tasks).values({
+      id: "running-task-with-lock",
+      title: "running",
+      prompt: "running prompt",
+      status: "running",
+      providerId: "missing-provider",
+      createdBy: "cli",
+      createdAt: now,
+      updatedAt: now,
+    });
+    closeDb();
+    _resetPanicForTesting();
+
+    const daemon = await startDaemon({ dbPath, port: 0 });
+
+    try {
+      const running = await daemon.tasks.getTask("running-task-with-lock");
+      expect(running?.status).toBe("running");
       expect((daemon.heartbeat as any).intervalHandle).toBeNull();
     } finally {
       await daemon.app.close();

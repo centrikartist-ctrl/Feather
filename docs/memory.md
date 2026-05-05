@@ -1,6 +1,6 @@
 # Memory
 
-Feather now includes explicit editable memory in this still-early v0.01 build.
+Feather includes explicit editable memory in `v0.1.0-alpha`.
 
 ## Model
 
@@ -35,3 +35,4 @@ Memory is context only.
 - it does not override denied paths or secret blocking
 - it is not hidden automatic memory
 - it is not transcript storage
+- it cannot override skill allowlists, provider routing, budget limits, safe mode, or Guard locks

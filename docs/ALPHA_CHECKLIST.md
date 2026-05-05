@@ -5,9 +5,11 @@
 - [ ] Node version matches README/package/CI
 - [ ] pnpm version matches README/package/CI
 - [ ] `pnpm install` succeeds
+- [ ] `pnpm run check:repo-safety` passes
 - [ ] `pnpm typecheck` passes
 - [ ] `pnpm build` passes
 - [ ] `pnpm test` passes
+- [ ] Supervisor typecheck/build/test pass
 
 ## Safety
 
@@ -31,9 +33,30 @@
 - [ ] Supervisor detects unreachable gateway
 - [ ] Supervisor does not restart while `panic.lock` exists
 - [ ] Supervisor enters safe mode after repeated hard failures
+- [ ] Supervisor does not restart while `safe-mode.lock` exists
 - [ ] Snapshot create writes sanitized files only
-- [ ] Snapshot excludes `.env*`, credentials, keys, logs, DB smoke temp projects, `node_modules`, and build output
+- [ ] Snapshot redacts YAML, dotenv, spaced assignment, and JSON-like secret lines
+- [ ] Snapshot excludes `.env*`, credentials, keys, logs, DB smoke temp projects, snapshots, `.git`, `node_modules`, and build output
 - [ ] Lifecycle request endpoint writes JSON request files and does not execute lifecycle actions directly
+- [ ] Unknown lifecycle request types are rejected
+
+## Manual alpha smoke
+
+- [ ] Start daemon
+- [ ] Open dashboard
+- [ ] Configure provider
+- [ ] Add project
+- [ ] Run simple task
+- [ ] Trigger approval
+- [ ] Approve and reject approval paths
+- [ ] Panic and resume
+- [ ] Confirm `panic.lock` creation/removal
+- [ ] `GET /health`
+- [ ] `POST /diagnostics/noop`
+- [ ] `feather-supervisor status`
+- [ ] `feather-supervisor snapshot create "manual alpha check"`
+- [ ] Telegram `/status` if configured
+- [ ] Plain Telegram `status` if configured
 
 ## Codex provider
 

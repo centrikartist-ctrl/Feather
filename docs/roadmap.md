@@ -2,6 +2,9 @@
 
 ## After v0.1
 
+- staged Guard updates and real rollback
+- runtime manifest protection
+- clearer service installation story for the supervisor
 - richer provider management and editing
 - better first-run onboarding
 - task console improvements for diffs and tool events
@@ -18,3 +21,4 @@
 - email/calendar/voice features
 - plugin marketplace
 - unrestricted shell or global filesystem access
+- full self-healing claims

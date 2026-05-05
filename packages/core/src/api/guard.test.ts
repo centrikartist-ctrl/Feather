@@ -69,4 +69,25 @@ describe("guard API", () => {
       await daemon.app.close();
     }
   });
+
+  it("rejects unknown lifecycle request types", async () => {
+    const dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "feather-guard-api-db-"));
+    tempDirs.push(dbDir);
+    const daemon = await startDaemon({ port: 0, dbPath: path.join(dbDir, "test.db") });
+    try {
+      const response = await daemon.app.inject({
+        method: "POST",
+        url: "/lifecycle/requests",
+        payload: {
+          type: "RUN_SHELL_REQUEST",
+          requestedBy: "test",
+          reason: "should fail",
+          command: "echo no",
+        },
+      });
+      expect(response.statusCode).toBe(400);
+    } finally {
+      await daemon.app.close();
+    }
+  });
 });

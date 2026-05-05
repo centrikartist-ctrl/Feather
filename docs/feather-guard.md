@@ -43,7 +43,13 @@ The gateway may write lifecycle requests, but it does not perform lifecycle acti
 POST /lifecycle/requests
 ```
 
-The request is written to Feather home `requests/` as JSON. This is only a queue foundation in this pass. The supervisor does not yet perform staged updates from those requests.
+The request is written to Feather home `requests/` as JSON. This is only a queue foundation in this pass. The alpha allowlist is:
+
+- `RESTART_REQUEST`
+- `PANIC_REQUEST`
+- `SNAPSHOT_REQUEST`
+
+Unknown request types are rejected. The supervisor does not yet process queued requests into lifecycle actions and does not perform staged updates from those requests.
 
 ## Supervisor
 
@@ -63,7 +69,9 @@ feather-supervisor snapshot create "reason"
 
 The supervisor polls the gateway, optionally runs noop diagnostics, classifies health, detects unreachable gateway, attempts a configured restart after repeated unreachable checks, and enters safe mode after repeated hard failures.
 
-Gateway restart is disabled by default. If configured, it uses a command plus argv array with `shell: false`; there is no chat or freeform command execution surface.
+Gateway restart is disabled by default. Only configure restart commands you trust. The supervisor does not accept restart commands from chat, model output, lifecycle requests, or the gateway. If configured, restart uses explicit command plus argv with `shell: false`; there is no chat or freeform command execution surface.
+
+If `safe-mode.lock` exists, the supervisor does not keep restarting the gateway. Manual intervention is required.
 
 ## Snapshots
 
@@ -89,7 +97,7 @@ Excluded:
 - `.git`
 - snapshots
 
-Sensitive config lines containing token, API key, secret, or password are redacted before copy.
+Sensitive config lines containing token, API key, secret, or password are redacted before copy. Redaction covers common YAML, dotenv, spaced assignment, and JSON-like forms, but secrets should still live outside snapshot inputs wherever practical.
 
 ## Current Limits
 

@@ -11,7 +11,7 @@ Heartbeat is Feather's lightweight project observation loop.
 
 The default is `passive`.
 
-## Current v0.01 behavior
+## Current `v0.1.0-alpha` Behavior
 
 Current heartbeat checks focus on:
 
@@ -41,6 +41,7 @@ Heartbeat must not:
 - silently execute risky commands
 - generate expensive provider calls without control
 - use memory to bypass safety controls
+- auto-start tasks, even in proactive mode
 
 ## Output
 

@@ -1,6 +1,6 @@
 # Telegram Freeform
 
-Feather keeps all existing slash commands and adds deterministic freeform routing for plain Telegram messages in this still-early v0.01 build.
+Feather keeps all existing slash commands and adds deterministic freeform routing for plain Telegram messages in `v0.1.0-alpha`.
 
 ## What it handles
 
@@ -15,6 +15,7 @@ Feather keeps all existing slash commands and adds deterministic freeform routin
 - it does not bypass approvals
 - it does not auto-run risky work from plain text
 - it does not silently choose between multiple projects
+- it does not bypass panic, approval gates, denied paths, budgets, provider routing, memory safety, or skill allowlists
 
 ## Plain-message examples
 
@@ -55,3 +56,5 @@ The operator must reply with `approve task` or `cancel`.
 3. Send a plain action request and confirm Feather asks for `approve task`.
 4. Reply `approve task` and confirm the task appears in the dashboard.
 5. Activate panic and confirm plain task approval is blocked while plain reject still works.
+
+Live Telegram testing is manual because bot credentials are user-owned local secrets. The automated suite uses mocked Telegram transport.
