@@ -4,7 +4,7 @@ Feather is a lightweight local web harness for Codex/API-powered workflows.
 
 It gives builders a control layer around agents: projects, providers, approvals, panic mode, budgets, heartbeat checks, Telegram control, and daily recaps.
 
-Status: alpha. The current build is usable for local experiments, but interfaces and behavior may still change.
+Status: alpha. The current launch target is a supervised local operator build. It is usable for local experiments and small real tasks, but interfaces, provider behavior, and approval UX may still change between builds.
 
 ---
 
@@ -41,7 +41,8 @@ Status: alpha. The current build is usable for local experiments, but interfaces
 - OpenAI-compatible budget enforcement requires pricing fields and provider usage events.
 - Providers without pricing stay in usage-only / unknown-pricing mode.
 - File diffs are simple full-replace diffs in v0.1.
-- OpenAI-compatible native tool-calling is not implemented yet.
+- OpenAI, OpenRouter, and OpenAI-compatible providers use a lightweight Feather tool protocol today; native provider tool-calling is not implemented yet.
+- Tool-heavy API-provider tasks are still less predictable than Codex CLI and should be treated as supervised workflows.
 - Telegram is command-style in v0.1; freeform chat is planned for v0.2.
 - Explicit memory and local skills are planned for v0.2, not in v0.1.
 - Desktop app packaging is not part of v0.1; Feather uses a local web dashboard.

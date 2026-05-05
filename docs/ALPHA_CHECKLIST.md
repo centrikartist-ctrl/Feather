@@ -37,6 +37,15 @@
 - [ ] Confirm missing provider gives actionable error
 - [ ] Confirm no silent first-provider fallback unless auto-route enabled
 
+## API provider live smoke
+
+- [ ] Validate `gpt-4o-mini` or another mini-tier API provider
+- [ ] Run one exact-text smoke task
+- [ ] Run one auto-route smoke task
+- [ ] Run one cancellation smoke task
+- [ ] Run one review-gated write task and approve it
+- [ ] Run one review-gated write task and reject it
+
 ## Approvals
 
 - [ ] Trigger review-risk file write

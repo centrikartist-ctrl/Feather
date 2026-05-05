@@ -31,6 +31,14 @@ Validation runs `codex --version`.
 
 `openai`, `openrouter`, and `openai-compatible` use the same streaming chat-completions path with different defaults.
 
+In the current v0.1 build, these providers do not use native provider tool-calling. Feather injects a small text-based tool protocol so the model can request filesystem, shell, and git actions through the task runner when the model follows that format.
+
+That means:
+
+- simple text tasks are reliable
+- validation and budget estimation work as expected when usage/pricing data are available
+- tool-heavy tasks work, but they should still be treated as supervised flows rather than unattended automation
+
 Configuration fields:
 
 - `apiKeyEnv`

@@ -4,6 +4,8 @@
 
 Feather is a lightweight, open-source, local web dashboard and daemon harness for running Codex/API-powered agent workflows on weak machines.
 
+The current v0.1 target is a local operator build for supervised use. It is not a finished desktop product, and some provider and approval flows are still being tightened.
+
 - A local daemon
 - A local web dashboard (http://127.0.0.1:47383)
 - A CLI (`feather`)
@@ -25,6 +27,7 @@ Feather is a lightweight, open-source, local web dashboard and daemon harness fo
 - An AI companion or personality toy
 - A plugin marketplace
 - A voice assistant
+- A polished unattended agent platform
 - An unrestricted autonomous system
 - A tool that silently reads the whole machine
 - A tool that silently executes destructive commands

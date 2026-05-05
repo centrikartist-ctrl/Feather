@@ -17,6 +17,23 @@ export type OpenAICompatibleConfig = {
   outputCentsPer1MTokens?: number;
 };
 
+const FEATHER_TOOL_BLOCK_PREFIX = "```feather_tool";
+const FEATHER_TOOL_PROTOCOL_PROMPT = [
+  "# Feather tool protocol",
+  "If you need Feather to perform an action, do not describe the action in prose.",
+  "Instead, respond with exactly one fenced code block using the language tag feather_tool.",
+  "The block content must be valid JSON with this shape:",
+  '{"toolName":"filesystem.writeFile","input":{"path":"docs/smoke.txt","content":"ok"}}',
+  "Use one of these tool names when needed: filesystem.readFile, filesystem.listFiles, filesystem.writeFile, shell.run, shell.runCommand, git.status, git.diff, git.log.",
+  "If no tool is needed, answer normally.",
+  "Never claim a tool already ran unless you emitted the feather_tool block.",
+].join("\n");
+
+type ParsedToolRequest = {
+  toolName: string;
+  input: unknown;
+};
+
 export function calculateEstimatedCents(
   usage: { inputTokens?: number; outputTokens?: number },
   pricing: { inputCentsPer1MTokens?: number; outputCentsPer1MTokens?: number },
@@ -33,6 +50,26 @@ export function calculateEstimatedCents(
     (inputTok / 1_000_000) * inputCentsPer1M +
     (outputTok / 1_000_000) * outputCentsPer1M,
   );
+}
+
+export function parseFeatherToolRequest(content: string): ParsedToolRequest | null {
+  const match = content.match(/```feather_tool\s*([\s\S]*?)```/i);
+  if (!match) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]!.trim()) as { toolName?: unknown; input?: unknown };
+    if (typeof parsed.toolName !== "string" || parsed.toolName.length === 0) {
+      return null;
+    }
+    return {
+      toolName: parsed.toolName,
+      input: parsed.input,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export class OpenAICompatibleProvider implements ProviderAdapter {
@@ -122,6 +159,8 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
       messages.push({ role: "system", content: input.systemPrompt });
     }
 
+    messages.push({ role: "system", content: FEATHER_TOOL_PROTOCOL_PROMPT });
+
     if (input.contextFiles && input.contextFiles.length > 0) {
       const contextBlock = input.contextFiles
         .map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``)
@@ -166,6 +205,8 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
       const decoder = new TextDecoder();
       let buffer = "";
       let summary = "";
+      let bufferedPrefix = "";
+      let suppressStreaming = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -189,7 +230,34 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
             const delta = parsed.choices?.[0]?.delta?.content;
             if (delta) {
               summary += delta;
-              yield { type: "text_delta", text: delta };
+
+              if (suppressStreaming) {
+                continue;
+              }
+
+              if (bufferedPrefix !== "") {
+                bufferedPrefix += delta;
+              } else {
+                bufferedPrefix = delta;
+              }
+
+              const trimmedPrefix = bufferedPrefix.trimStart();
+              if (trimmedPrefix.length === 0) {
+                continue;
+              }
+
+              if (FEATHER_TOOL_BLOCK_PREFIX.startsWith(trimmedPrefix)) {
+                if (trimmedPrefix === FEATHER_TOOL_BLOCK_PREFIX || trimmedPrefix.length < FEATHER_TOOL_BLOCK_PREFIX.length) {
+                  if (trimmedPrefix === FEATHER_TOOL_BLOCK_PREFIX) {
+                    suppressStreaming = true;
+                  }
+                  continue;
+                }
+              }
+
+              const flush = bufferedPrefix;
+              bufferedPrefix = "";
+              yield { type: "text_delta", text: flush };
             }
 
             if (parsed.usage) {
@@ -211,6 +279,17 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
             // Skip malformed SSE lines
           }
         }
+      }
+
+      if (!suppressStreaming && bufferedPrefix) {
+        yield { type: "text_delta", text: bufferedPrefix };
+      }
+
+      const toolRequest = parseFeatherToolRequest(summary);
+      if (toolRequest) {
+        yield { type: "tool_request", toolName: toolRequest.toolName, input: toolRequest.input };
+        yield { type: "done", summary: `Requested tool: ${toolRequest.toolName}` };
+        return;
       }
 
       yield { type: "done", summary: summary.slice(0, 500) || "Task completed." };
