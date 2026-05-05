@@ -110,7 +110,7 @@ program
     console.log(chalk.gray("  2. Open the dashboard and add a provider."));
     console.log(chalk.gray("  3. Register a project in the dashboard or with `pnpm --filter @feather/cli exec tsx src/main.ts project add <path>`."));
     console.log(chalk.gray("  4. Telegram is optional for alpha; configure it later if you want phone control."));
-    console.log(chalk.gray("  5. Guard is optional for alpha; run `pnpm --filter @feather/supervisor exec tsx src/main.ts status` when needed."));
+    console.log(chalk.gray("  5. `pnpm dev` starts Guard as a separate supervisor process; use `pnpm --filter @feather/supervisor exec tsx src/main.ts status` to inspect it."));
   });
 
 program

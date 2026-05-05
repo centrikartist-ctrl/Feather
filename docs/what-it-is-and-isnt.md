@@ -7,7 +7,7 @@ Feather is a lightweight, open-source, local web dashboard and daemon harness fo
 The current v0.1 target is a local operator build for supervised use. It is not a finished desktop product, and some provider and approval flows are still being tightened.
 
 - A local daemon
-- A local web dashboard (http://127.0.0.1:47383)
+- A local web dashboard (`http://localhost:5173` in development; built assets can be served by the daemon)
 - A CLI (`feather`)
 - A project registry
 - A provider router (Codex CLI, OpenAI, OpenRouter, OpenAI-compatible)

@@ -170,7 +170,7 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
       });
 
       if (!res.ok) {
-        return { ok: false, message: `Provider returned ${res.status}: ${await res.text()}` };
+        return { ok: false, message: formatProviderHttpError(res) };
       }
 
       return { ok: true, message: `Connected to ${this.config.baseUrl} with model ${this.config.model}` };
@@ -214,7 +214,7 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
     });
 
     if (!res.ok) {
-      throw new Error(`Provider returned ${res.status}: ${await res.text()}`);
+      throw new Error(formatProviderHttpError(res));
     }
 
     const parsed = await res.json() as OpenAIChatCompletionResponse;
@@ -284,7 +284,7 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
       });
 
       if (!res.ok) {
-        yield { type: "error", error: `Provider returned ${res.status}: ${await res.text()}` };
+        yield { type: "error", error: formatProviderHttpError(res) };
         return;
       }
 
@@ -441,4 +441,8 @@ function extractChatText(content: string | Array<{ type?: string; text?: string 
   }
 
   return "";
+}
+
+function formatProviderHttpError(response: Response): string {
+  return `Provider returned ${response.status}${response.statusText ? ` ${response.statusText}` : ""}. Check provider credentials, model access, and base URL.`;
 }

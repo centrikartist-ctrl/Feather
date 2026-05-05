@@ -895,7 +895,9 @@ function checkLogsWritable(): CheckState {
   try {
     const logsDir = path.join(getFeatherHomeDir(), "logs");
     fs.mkdirSync(logsDir, { recursive: true });
-    fs.appendFileSync(path.join(logsDir, "gateway.healthcheck.log"), `${new Date().toISOString()} health\n`, "utf8");
+    const probePath = path.join(logsDir, `.noop-${process.pid}-${Date.now()}.tmp`);
+    fs.writeFileSync(probePath, "ok", "utf8");
+    fs.rmSync(probePath, { force: true });
     return "ok";
   } catch {
     return "failed";

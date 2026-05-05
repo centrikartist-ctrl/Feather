@@ -2,11 +2,13 @@
 
 This document describes how Feather Guard should become a real background service after `v0.1.0-alpha`.
 
-Status: planning only. In `v0.1.0-alpha`, run the supervisor manually.
+Status: planning only. In `v0.1.0-alpha`, `pnpm dev` starts the supervisor alongside the daemon and dashboard, but service installation is not implemented.
 
 ## Alpha behaviour
 
-Use the repo-local command:
+`pnpm dev` is the normal local development entrypoint and launches Guard as a separate process.
+
+You can also run Guard directly with the repo-local command:
 
 ```sh
 pnpm --filter @feather/supervisor exec tsx src/main.ts run
