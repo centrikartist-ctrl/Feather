@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildTaskSystemPrompt,
   initProjectConfig,
+  loadGlobalConfig,
   loadGlobalAgentInstructions,
   loadProjectFileConfig,
   saveGlobalAgentInstructions,
@@ -45,6 +46,18 @@ describe("project config loading", () => {
     expect(fs.existsSync(path.join(fakeHome, "agent.md"))).toBe(true);
   });
 
+  it("applies safe Telegram freeform defaults in global config", () => {
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "feather-home-test-"));
+    tempDirs.push(fakeHome);
+    vi.stubEnv("FEATHER_HOME_DIR", fakeHome);
+
+    const config = loadGlobalConfig();
+
+    expect(config.telegram?.freeform?.enabled).toBe(true);
+    expect(config.telegram?.freeform?.confirmations?.readOnly).toBe(false);
+    expect(config.telegram?.freeform?.confirmations?.createTask).toBe(true);
+  });
+
   it("builds a shared system prompt from global, project, repo, and runtime layers", () => {
     const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "feather-home-test-"));
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "feather-project-test-"));
@@ -62,5 +75,30 @@ describe("project config loading", () => {
     expect(prompt).toContain("Project Instructions");
     expect(prompt).toContain("Repository AGENTS.md");
     expect(prompt).toContain("Runtime Guidance");
+  });
+
+  it("includes explicit memories and selected skill context in the system prompt", () => {
+    const prompt = buildTaskSystemPrompt({
+      explicitMemories: {
+        global: [{ id: "g1", scope: "global", kind: "preference", content: "Keep summaries short.", createdAt: "1", updatedAt: "1" }],
+        project: [{ id: "p1", scope: "project", projectId: "proj", kind: "constraint", content: "Do not add features.", createdAt: "1", updatedAt: "1" }],
+      },
+      selectedSkill: {
+        id: "global:safe-ui-pass",
+        name: "Safe UI Pass",
+        scope: "global",
+        path: "C:/skills/safe-ui-pass.md",
+        purpose: "Improve UI without feature changes.",
+        allowedTools: ["filesystem.readFile", "filesystem.writeFile"],
+        instructions: "Preserve routing.",
+        output: "summary",
+      },
+    });
+
+    expect(prompt).toContain("Explicit Feather Memories");
+    expect(prompt).toContain("Keep summaries short.");
+    expect(prompt).toContain("Do not add features.");
+    expect(prompt).toContain("Selected Feather Skill");
+    expect(prompt).toContain("Safe UI Pass");
   });
 });

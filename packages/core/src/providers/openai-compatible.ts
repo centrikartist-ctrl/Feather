@@ -5,6 +5,7 @@ import type {
   TaskInput,
   ProviderEvent,
 } from "@feather/shared";
+import { FEATHER_TOOL_NAMES } from "../tools/registry.js";
 
 export type OpenAICompatibleConfig = {
   baseUrl: string;
@@ -18,6 +19,9 @@ export type OpenAICompatibleConfig = {
 };
 
 const FEATHER_TOOL_BLOCK_PREFIX = "```feather_tool";
+export const MAX_TOOL_BLOCK_CHARS = 20_000;
+export const MAX_TOOL_INPUT_JSON_CHARS = 15_000;
+const PROVIDER_VALIDATE_TIMEOUT_MS = 30_000;
 const FEATHER_TOOL_PROTOCOL_PROMPT = [
   "# Feather tool protocol",
   "If you need Feather to perform an action, do not describe the action in prose.",
@@ -32,6 +36,11 @@ const FEATHER_TOOL_PROTOCOL_PROMPT = [
 type ParsedToolRequest = {
   toolName: string;
   input: unknown;
+};
+
+type ToolParseResult = {
+  toolRequest: ParsedToolRequest | null;
+  error?: string;
 };
 
 export function calculateEstimatedCents(
@@ -53,22 +62,49 @@ export function calculateEstimatedCents(
 }
 
 export function parseFeatherToolRequest(content: string): ParsedToolRequest | null {
-  const match = content.match(/```feather_tool\s*([\s\S]*?)```/i);
-  if (!match) {
-    return null;
+  return interpretFeatherToolResponse(content).toolRequest;
+}
+
+function interpretFeatherToolResponse(content: string): ToolParseResult {
+  if (!content.includes(FEATHER_TOOL_BLOCK_PREFIX)) {
+    return { toolRequest: null };
+  }
+
+  if (content.length > MAX_TOOL_BLOCK_CHARS) {
+    return { toolRequest: null, error: `Feather tool response exceeded ${MAX_TOOL_BLOCK_CHARS} characters.` };
+  }
+
+  const toolBlockCount = (content.match(/```feather_tool/gi) ?? []).length;
+  if (toolBlockCount !== 1) {
+    return { toolRequest: null, error: "Feather tool protocol requires exactly one feather_tool block." };
+  }
+
+  const match = content.match(/^\s*```feather_tool\s*([\s\S]*?)```\s*$/i);
+  if (!match?.[1]) {
+    return { toolRequest: null, error: "Feather tool responses must contain only the feather_tool block with no extra prose." };
+  }
+
+  const jsonSource = match[1].trim();
+  if (jsonSource.length > MAX_TOOL_INPUT_JSON_CHARS) {
+    return { toolRequest: null, error: `Feather tool JSON exceeded ${MAX_TOOL_INPUT_JSON_CHARS} characters.` };
   }
 
   try {
-    const parsed = JSON.parse(match[1]!.trim()) as { toolName?: unknown; input?: unknown };
+    const parsed = JSON.parse(jsonSource) as { toolName?: unknown; input?: unknown };
     if (typeof parsed.toolName !== "string" || parsed.toolName.length === 0) {
-      return null;
+      return { toolRequest: null, error: "Feather tool JSON must include a non-empty toolName." };
+    }
+    if (!FEATHER_TOOL_NAMES.includes(parsed.toolName as (typeof FEATHER_TOOL_NAMES)[number])) {
+      return { toolRequest: null, error: `Unsupported Feather tool request: ${parsed.toolName}` };
     }
     return {
-      toolName: parsed.toolName,
-      input: parsed.input,
+      toolRequest: {
+        toolName: parsed.toolName,
+        input: parsed.input,
+      },
     };
   } catch {
-    return null;
+    return { toolRequest: null, error: "Feather tool JSON must be valid JSON." };
   }
 }
 
@@ -121,7 +157,7 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
           Authorization: `Bearer ${apiKey}`,
           ...(this.config.organizationId ? { "OpenAI-Organization": this.config.organizationId } : {}),
         },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(PROVIDER_VALIDATE_TIMEOUT_MS),
       });
 
       if (!res.ok) {
@@ -285,8 +321,14 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
         yield { type: "text_delta", text: bufferedPrefix };
       }
 
-      const toolRequest = parseFeatherToolRequest(summary);
-      if (toolRequest) {
+      const toolResult = interpretFeatherToolResponse(summary);
+      if (toolResult.error) {
+        yield { type: "error", error: toolResult.error };
+        return;
+      }
+
+      if (toolResult.toolRequest) {
+        const toolRequest = toolResult.toolRequest;
         yield { type: "tool_request", toolName: toolRequest.toolName, input: toolRequest.input };
         yield { type: "done", summary: `Requested tool: ${toolRequest.toolName}` };
         return;

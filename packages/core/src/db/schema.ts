@@ -15,6 +15,7 @@ export const projects = sqliteTable("projects", {
 export const tasks = sqliteTable("tasks", {
   id: text("id").primaryKey(),
   projectId: text("project_id"),
+  skillId: text("skill_id"),
   title: text("title").notNull(),
   prompt: text("prompt").notNull(),
   status: text("status").notNull(),

@@ -1,6 +1,6 @@
 # Provider Adapters
 
-Feather v0.1 supports four provider types:
+Feather v0.01 currently supports four provider types:
 
 - `codex-cli`
 - `openai`
@@ -31,7 +31,15 @@ Validation runs `codex --version`.
 
 `openai`, `openrouter`, and `openai-compatible` use the same streaming chat-completions path with different defaults.
 
-In the current v0.1 build, these providers do not use native provider tool-calling. Feather injects a small text-based tool protocol so the model can request filesystem, shell, and git actions through the task runner when the model follows that format.
+In the current build, these providers do not use native provider tool-calling. Feather injects a small text-based tool protocol so the model can request filesystem, shell, and git actions through the task runner when the model follows that format.
+
+The parser is intentionally strict:
+
+- exactly one `feather_tool` block
+- valid JSON only
+- tool name must be on Feather's allowlist
+- oversized protocol blocks are rejected
+- extra prose around a tool block is rejected
 
 That means:
 

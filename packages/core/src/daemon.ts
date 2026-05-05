@@ -10,6 +10,8 @@ import { ProviderConfigService } from "./providers/service.js";
 import { BudgetService } from "./budgets/index.js";
 import { createApiServer } from "./api/index.js";
 import { TelegramConnector } from "./telegram/index.js";
+import { MemoryService } from "./memories/index.js";
+import { SkillService } from "./skills/index.js";
 import { FEATHER_HOST, FEATHER_PORT } from "@feather/shared";
 import { loadPanicStateFromDb, getPanicState } from "./panic/index.js";
 import path from "node:path";
@@ -38,8 +40,10 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
   const providers = new ProviderRegistry();
   const providerConfigs = new ProviderConfigService(providers);
   const budgets = new BudgetService();
-  const tasks = new TaskRunner(providers, projects, approvals, budgets);
-  const heartbeat = new HeartbeatService(projects, approvals);
+  const memories = new MemoryService();
+  const skills = new SkillService(projects);
+  const tasks = new TaskRunner(providers, projects, approvals, budgets, { memories, skills });
+  const heartbeat = new HeartbeatService(projects, approvals, memories);
 
   await providerConfigs.loadIntoRegistry();
   if (!panicOnStartup.active) {
@@ -61,6 +65,8 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
     providers,
     providerConfigs,
     budgets,
+    memories,
+    skills,
     logger,
   });
 
@@ -69,7 +75,7 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
 
   // Start heartbeat in passive mode
   if (!panicOnStartup.active) {
-    heartbeat.start(30);
+    heartbeat.start();
   } else {
     logger.warn("Heartbeat NOT started — panic mode is active. Resume with /resume confirm or deactivatePanic().");
   }
@@ -90,8 +96,9 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
           allowedUserIds,
           globalDefaultProviderId: routingConfig.globalDefaultProviderId,
           allowSingleProviderAutoRoute: routingConfig.allowSingleProviderAutoRoute,
+          freeform: globalConfig.telegram?.freeform,
         },
-        { approvals, projects, tasks, budgets, heartbeat, providers },
+        { approvals, projects, tasks, budgets, heartbeat, providers, memories, skills },
       );
       telegram.start();
       logger.info({ allowedUserIds }, "Telegram connector started");
@@ -115,5 +122,5 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
     }
   }
 
-  return { app, projects, tasks, approvals, heartbeat, providers, providerConfigs, budgets, telegram };
+  return { app, projects, tasks, approvals, heartbeat, providers, providerConfigs, budgets, memories, skills, telegram };
 }

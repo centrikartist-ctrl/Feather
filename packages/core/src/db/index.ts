@@ -67,6 +67,7 @@ const MIGRATIONS: MigrationStep[] = [
         CREATE TABLE IF NOT EXISTS tasks (
           id TEXT PRIMARY KEY,
           project_id TEXT,
+          skill_id TEXT,
           title TEXT NOT NULL,
           prompt TEXT NOT NULL,
           status TEXT NOT NULL,
@@ -223,6 +224,12 @@ const MIGRATIONS: MigrationStep[] = [
     id: "0005_observation_status_column",
     up: (sqlite) => {
       ensureColumn(sqlite, "observations", "status", "ALTER TABLE observations ADD COLUMN status TEXT NOT NULL DEFAULT 'open'");
+    },
+  },
+  {
+    id: "0006_tasks_skill_column",
+    up: (sqlite) => {
+      ensureColumn(sqlite, "tasks", "skill_id", "ALTER TABLE tasks ADD COLUMN skill_id TEXT");
     },
   },
 ];

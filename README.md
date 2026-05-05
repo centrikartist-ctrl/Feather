@@ -4,7 +4,7 @@ Feather is a lightweight local web harness for Codex/API-powered workflows.
 
 It gives builders a control layer around agents: projects, providers, approvals, panic mode, budgets, heartbeat checks, Telegram control, and daily recaps.
 
-Status: alpha. The current launch target is a supervised local operator build. It is usable for local experiments and small real tasks, but interfaces, provider behavior, and approval UX may still change between builds.
+Status: alpha. This is still an early supervised local operator build and should be treated as v0.01, not a release. It is usable for local experiments and small real tasks, but interfaces, provider behavior, and approval UX may still change between builds.
 
 ---
 
@@ -40,12 +40,17 @@ Status: alpha. The current launch target is a supervised local operator build. I
 - Codex process cancellation is best-effort.
 - OpenAI-compatible budget enforcement requires pricing fields and provider usage events.
 - Providers without pricing stay in usage-only / unknown-pricing mode.
-- File diffs are simple full-replace diffs in v0.1.
+- File diffs are still simple full-replace diffs in v0.01.
 - OpenAI, OpenRouter, and OpenAI-compatible providers use a lightweight Feather tool protocol today; native provider tool-calling is not implemented yet.
 - Tool-heavy API-provider tasks are still less predictable than Codex CLI and should be treated as supervised workflows.
-- Telegram is command-style in v0.1; freeform chat is planned for v0.2.
-- Explicit memory and local skills are planned for v0.2, not in v0.1.
-- Desktop app packaging is not part of v0.1; Feather uses a local web dashboard.
+- Desktop app packaging is not part of v0.01; Feather uses a local web dashboard.
+
+## Current In-Progress Additions
+
+- Freeform Telegram routing for read-only questions, task proposals, panic/cancel, and approval responses.
+- Explicit editable memory with global and project scope.
+- Local skill files for reusable workflow instructions.
+- More configurable heartbeat modes, checks, cooldowns, and recap instructions.
 
 ---
 
@@ -138,6 +143,36 @@ TELEGRAM_ALLOWED_USER_IDS=123456789
 
 Useful commands include `/status`, `/projects`, `/task <project> <prompt>`, `/approvals`, `/approve <id>`, `/reject <id>`, `/panic`, `/resume confirm`, `/budget`, and `/cancel <taskId>`.
 
+The current build also supports deterministic freeform Telegram messages for status, approvals, panic/cancel, and task proposals. Action-style plain messages create a confirmation instead of starting work immediately.
+
+## Explicit memory
+
+Feather now supports explicit global and project memories through the dashboard, API, and Telegram commands.
+
+- Memories are context only.
+- Memories do not grant permissions.
+- Memories do not bypass panic, approvals, budgets, denied paths, or secret blocking.
+
+## Local skills
+
+Skills are local Markdown workflow packs stored under `~/.feather/skills/` or `<project>/.feather/skills/`.
+
+- Skills narrow how a task should run.
+- Skills do not grant permissions.
+- Selected skills are included in the task system prompt.
+- Tools outside the selected skill allowlist are blocked before execution.
+
+## Heartbeat personalization
+
+Heartbeat stays supervised in this v0.01 build.
+
+- `off` disables it
+- `manual` runs only on demand
+- `passive` observes and summarizes
+- `proactive` can attach suggested actions, but it does not auto-start tasks
+
+Project heartbeat settings are editable in the dashboard and stored in `.feather/project.yml`.
+
 ## Panic and resume
 
 - Dashboard panic stops active work and stops heartbeat
@@ -190,10 +225,14 @@ Customize agent instructions in `.feather/instructions.md`.
 - [Provider adapters](docs/provider-adapters.md)
 - [Tool system](docs/tool-system.md)
 - [Heartbeat](docs/heartbeat.md)
+- [Telegram freeform](docs/telegram-freeform.md)
+- [Memory](docs/memory.md)
+- [Skills](docs/skills.md)
 - [Project config](docs/project-config.md)
 - [Remote mode](docs/remote-mode.md)
 - [Roadmap](docs/roadmap.md)
 - [Alpha checklist](docs/ALPHA_CHECKLIST.md)
+- [current bug log](docs/V0_2_BUG_LOG.md)
 
 ---
 

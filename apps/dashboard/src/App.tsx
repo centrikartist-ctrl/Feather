@@ -7,6 +7,8 @@ import {
   Terminal,
   CheckSquare,
   Heart,
+  Brain,
+  Layers3,
   Cpu,
   DollarSign,
   ScrollText,
@@ -24,11 +26,39 @@ const NAV = [
   { to: "/tasks", label: "Tasks", icon: Terminal },
   { to: "/approvals", label: "Approvals", icon: CheckSquare },
   { to: "/heartbeat", label: "Heartbeat", icon: Heart },
+  { to: "/memory", label: "Memory", icon: Brain },
+  { to: "/skills", label: "Skills", icon: Layers3 },
   { to: "/providers", label: "Providers", icon: Cpu },
   { to: "/budgets", label: "Budgets", icon: DollarSign },
   { to: "/logs", label: "Logs", icon: ScrollText },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
+
+type MemoryKind = import("@feather/shared").MemoryKind;
+
+type SkillFormState = {
+  scope: "global" | "project";
+  projectId: string;
+  id: string;
+  name: string;
+  purpose: string;
+  allowedTools: string;
+  instructions: string;
+  output: string;
+};
+
+function createDefaultSkillForm(): SkillFormState {
+  return {
+    scope: "global",
+    projectId: "",
+    id: "",
+    name: "",
+    purpose: "",
+    allowedTools: "filesystem.readFile",
+    instructions: "",
+    output: "",
+  };
+}
 
 function Sidebar() {
   const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 5000 });
@@ -44,7 +74,7 @@ function Sidebar() {
         <div className="flex items-center gap-2">
           <span className="text-feather-500 text-xl">🪶</span>
           <span className="font-bold text-white">Feather</span>
-          <span className="text-xs text-slate-500 ml-auto">v0.1</span>
+          <span className="text-xs text-slate-500 ml-auto">v0.01</span>
         </div>
         {health && (
           <div className={clsx("text-xs mt-1", health.panic?.active ? "text-red-400" : "text-emerald-400")}>
@@ -142,7 +172,7 @@ function ApprovalPayloadPreview({ payload }: { payload: unknown }) {
         {visiblePayload}
       </pre>
       <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
-        <span>Large diffs are truncated here. Feather v0.1 uses simple full-replace diff previews.</span>
+        <span>Large diffs are truncated here. Feather v0.01 still uses simple full-replace diff previews.</span>
         {truncated && (
           <button
             type="button"
@@ -169,7 +199,9 @@ function HomePage() {
   const [quickPrompt, setQuickPrompt] = React.useState("");
   const [selectedProject, setSelectedProject] = React.useState("");
   const [selectedProvider, setSelectedProvider] = React.useState("");
+  const [selectedSkill, setSelectedSkill] = React.useState("");
   const { data: projectData } = useQuery({ queryKey: ["projects"], queryFn: api.projects.list });
+  const { data: skillData } = useQuery({ queryKey: ["skills"], queryFn: () => api.skills.list() });
 
   const createTask = useMutation({
     mutationFn: api.tasks.create,
@@ -228,6 +260,7 @@ function HomePage() {
               if (e.key === "Enter" && quickPrompt.trim()) {
                 createTask.mutate({
                   projectId: selectedProject || undefined,
+                  skillId: selectedSkill || undefined,
                   title: quickPrompt.slice(0, 80),
                   prompt: quickPrompt,
                   providerId: selectedProvider || undefined,
@@ -245,14 +278,29 @@ function HomePage() {
               <option key={provider.id} value={provider.id}>{provider.name}</option>
             ))}
           </select>
+          <select
+            value={selectedSkill}
+            onChange={(e) => setSelectedSkill(e.target.value)}
+            className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white"
+          >
+            <option value="">No skill</option>
+            {skillData?.skills.map((skill) => (
+              <option key={skill.id} value={skill.id}>{skill.name}</option>
+            ))}
+          </select>
           <button
             disabled={!quickPrompt.trim() || createTask.isPending}
-            onClick={() => createTask.mutate({ projectId: selectedProject || undefined, title: quickPrompt.slice(0, 80), prompt: quickPrompt, providerId: selectedProvider || undefined })}
+            onClick={() => createTask.mutate({ projectId: selectedProject || undefined, skillId: selectedSkill || undefined, title: quickPrompt.slice(0, 80), prompt: quickPrompt, providerId: selectedProvider || undefined })}
             className="px-4 py-2 bg-feather-600 hover:bg-feather-500 disabled:opacity-50 text-white text-sm rounded transition-colors"
           >
             Send
           </button>
         </div>
+        {selectedSkill && (
+          <div className="mt-3 text-xs text-slate-400">
+            Using skill: {skillData?.skills.find((skill) => skill.id === selectedSkill)?.name ?? selectedSkill}. Skills narrow behavior but do not bypass approvals or permissions.
+          </div>
+        )}
       </Card>
 
       {obsData && obsData.observations.length > 0 && (
@@ -410,7 +458,7 @@ function TasksPage() {
               <Badge variant={statusColor(t.status)}>{t.status}</Badge>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-white truncate">{t.title}</div>
-                <div className="text-xs text-slate-400">{t.providerId} · {new Date(t.createdAt).toLocaleString()}</div>
+                <div className="text-xs text-slate-400">{t.providerId} · {new Date(t.createdAt).toLocaleString()} {t.skillId ? `· skill ${t.skillId}` : ""}</div>
               </div>
             </div>
           </Card>
@@ -481,11 +529,86 @@ function ApprovalsPage() {
 
 function HeartbeatPage() {
   const qc = useQueryClient();
+  const { data: projectsData } = useQuery({ queryKey: ["projects"], queryFn: api.projects.list });
   const { data: obsData, isLoading } = useQuery({ queryKey: ["observations"], queryFn: () => api.heartbeat.observations() });
+  const [selectedProjectId, setSelectedProjectId] = React.useState("");
+  const { data: projectConfigData } = useQuery({
+    queryKey: ["project-config", selectedProjectId],
+    queryFn: () => api.projects.config(selectedProjectId),
+    enabled: Boolean(selectedProjectId),
+  });
+  const [heartbeatForm, setHeartbeatForm] = React.useState({
+    enabled: true,
+    mode: "passive" as "off" | "manual" | "passive" | "proactive",
+    intervalMinutes: 30,
+    quietStart: "22:30",
+    quietEnd: "08:00",
+    gitDirtyEnabled: true,
+    gitDirtyCooldown: 120,
+    pendingApprovalsEnabled: true,
+    pendingApprovalsCooldown: 30,
+    dailyRecapEnabled: true,
+    dailyRecapTime: "21:30",
+    instructions: "",
+  });
   const runMut = useMutation({
     mutationFn: api.heartbeat.run,
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["observations"] }),
   });
+  const saveMut = useMutation({
+    mutationFn: () => api.projects.updateHeartbeat(selectedProjectId, {
+      enabled: heartbeatForm.enabled,
+      mode: heartbeatForm.mode,
+      intervalMinutes: heartbeatForm.intervalMinutes,
+      quietHours: { start: heartbeatForm.quietStart, end: heartbeatForm.quietEnd },
+      checks: {
+        git_dirty: { enabled: heartbeatForm.gitDirtyEnabled, cooldownMinutes: heartbeatForm.gitDirtyCooldown },
+        pending_approvals: { enabled: heartbeatForm.pendingApprovalsEnabled, cooldownMinutes: heartbeatForm.pendingApprovalsCooldown },
+        daily_recap: { enabled: heartbeatForm.dailyRecapEnabled, time: heartbeatForm.dailyRecapTime || undefined },
+      },
+      instructions: heartbeatForm.instructions.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+    }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["project-config", selectedProjectId] });
+      void qc.invalidateQueries({ queryKey: ["observations"] });
+    },
+  });
+
+  React.useEffect(() => {
+    if (!selectedProjectId && projectsData?.projects[0]) {
+      setSelectedProjectId(projectsData.projects[0].id);
+    }
+  }, [projectsData, selectedProjectId]);
+
+  React.useEffect(() => {
+    const heartbeat = projectConfigData?.config?.heartbeat;
+    if (!heartbeat) {
+      return;
+    }
+    const gitDirty = typeof heartbeat.checks?.git_dirty === "boolean"
+      ? { enabled: heartbeat.checks.git_dirty, cooldownMinutes: 120 }
+      : heartbeat.checks?.git_dirty;
+    const pendingApprovals = typeof heartbeat.checks?.pending_approvals === "boolean"
+      ? { enabled: heartbeat.checks.pending_approvals, cooldownMinutes: 30 }
+      : heartbeat.checks?.pending_approvals;
+    const dailyRecap = typeof heartbeat.checks?.daily_recap === "boolean"
+      ? { enabled: heartbeat.checks.daily_recap, time: "21:30" }
+      : heartbeat.checks?.daily_recap;
+    setHeartbeatForm({
+      enabled: heartbeat.enabled ?? true,
+      mode: (heartbeat.mode === "off" || heartbeat.mode === "manual" || heartbeat.mode === "proactive") ? heartbeat.mode : "passive",
+      intervalMinutes: heartbeat.intervalMinutes ?? heartbeat.interval_minutes ?? 30,
+      quietStart: heartbeat.quietHours?.start ?? heartbeat.quiet_hours?.start ?? "22:30",
+      quietEnd: heartbeat.quietHours?.end ?? heartbeat.quiet_hours?.end ?? "08:00",
+      gitDirtyEnabled: gitDirty?.enabled ?? true,
+      gitDirtyCooldown: gitDirty?.cooldownMinutes ?? gitDirty?.cooldown_minutes ?? 120,
+      pendingApprovalsEnabled: pendingApprovals?.enabled ?? true,
+      pendingApprovalsCooldown: pendingApprovals?.cooldownMinutes ?? pendingApprovals?.cooldown_minutes ?? 30,
+      dailyRecapEnabled: dailyRecap?.enabled ?? true,
+      dailyRecapTime: dailyRecap?.time ?? "21:30",
+      instructions: (heartbeat.instructions ?? []).join("\n"),
+    });
+  }, [projectConfigData]);
 
   return (
     <div className="p-6 space-y-4">
@@ -499,6 +622,57 @@ function HeartbeatPage() {
           {runMut.isPending ? "Running..." : "Run Now"}
         </button>
       </div>
+
+      <Card>
+        <div className="space-y-3">
+          <div>
+            <div className="font-medium text-white">Project heartbeat settings</div>
+            <div className="text-xs text-slate-400 mt-1">Passive mode observes and summarizes. Proactive mode can suggest tasks, but it still does not start them automatically.</div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <select value={selectedProjectId} onChange={(e) => setSelectedProjectId(e.target.value)} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2">
+              <option value="">Select project</option>
+              {projectsData?.projects.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" checked={heartbeatForm.enabled} onChange={(e) => setHeartbeatForm((current) => ({ ...current, enabled: e.target.checked }))} className="rounded border-slate-600 bg-slate-900 text-feather-500" />
+              Heartbeat enabled
+            </label>
+            <select value={heartbeatForm.mode} onChange={(e) => setHeartbeatForm((current) => ({ ...current, mode: e.target.value as typeof current.mode }))} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white">
+              <option value="off">off</option>
+              <option value="manual">manual</option>
+              <option value="passive">passive</option>
+              <option value="proactive">proactive</option>
+            </select>
+            <input type="number" min={1} value={heartbeatForm.intervalMinutes} onChange={(e) => setHeartbeatForm((current) => ({ ...current, intervalMinutes: Number(e.target.value) || 30 }))} placeholder="Interval minutes" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+            <input value={heartbeatForm.quietStart} onChange={(e) => setHeartbeatForm((current) => ({ ...current, quietStart: e.target.value }))} placeholder="Quiet start" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+            <input value={heartbeatForm.quietEnd} onChange={(e) => setHeartbeatForm((current) => ({ ...current, quietEnd: e.target.value }))} placeholder="Quiet end" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" checked={heartbeatForm.gitDirtyEnabled} onChange={(e) => setHeartbeatForm((current) => ({ ...current, gitDirtyEnabled: e.target.checked }))} className="rounded border-slate-600 bg-slate-900 text-feather-500" />
+              git dirty check
+            </label>
+            <input type="number" min={0} value={heartbeatForm.gitDirtyCooldown} onChange={(e) => setHeartbeatForm((current) => ({ ...current, gitDirtyCooldown: Number(e.target.value) || 0 }))} placeholder="git dirty cooldown" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" checked={heartbeatForm.pendingApprovalsEnabled} onChange={(e) => setHeartbeatForm((current) => ({ ...current, pendingApprovalsEnabled: e.target.checked }))} className="rounded border-slate-600 bg-slate-900 text-feather-500" />
+              pending approvals check
+            </label>
+            <input type="number" min={0} value={heartbeatForm.pendingApprovalsCooldown} onChange={(e) => setHeartbeatForm((current) => ({ ...current, pendingApprovalsCooldown: Number(e.target.value) || 0 }))} placeholder="pending approvals cooldown" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" checked={heartbeatForm.dailyRecapEnabled} onChange={(e) => setHeartbeatForm((current) => ({ ...current, dailyRecapEnabled: e.target.checked }))} className="rounded border-slate-600 bg-slate-900 text-feather-500" />
+              daily recap note
+            </label>
+            <input value={heartbeatForm.dailyRecapTime} onChange={(e) => setHeartbeatForm((current) => ({ ...current, dailyRecapTime: e.target.value }))} placeholder="daily recap time" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+            <textarea value={heartbeatForm.instructions} onChange={(e) => setHeartbeatForm((current) => ({ ...current, instructions: e.target.value }))} rows={4} placeholder="Only notify me about shipping blockers." className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2" />
+          </div>
+          <div className="flex justify-end">
+            <button disabled={!selectedProjectId || saveMut.isPending} onClick={() => saveMut.mutate()} className="px-4 py-2 bg-feather-600 hover:bg-feather-500 disabled:opacity-50 text-white text-sm rounded">
+              Save settings
+            </button>
+          </div>
+        </div>
+      </Card>
 
       {runMut.isSuccess && (
         <div className="text-sm text-emerald-400 bg-emerald-900/20 rounded p-3">
@@ -537,6 +711,271 @@ function HeartbeatPage() {
       {obsData?.observations.length === 0 && (
         <div className="text-center py-12 text-slate-500">No observations yet. Run the heartbeat to check your projects.</div>
       )}
+    </div>
+  );
+}
+
+function MemoryPage() {
+  const qc = useQueryClient();
+  const { data: memoryData, isLoading } = useQuery({ queryKey: ["memories"], queryFn: () => api.memories.list() });
+  const { data: projectData } = useQuery({ queryKey: ["projects"], queryFn: api.projects.list });
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [scope, setScope] = React.useState<"global" | "project">("global");
+  const [projectId, setProjectId] = React.useState("");
+  const [kind, setKind] = React.useState<MemoryKind>("preference");
+  const [content, setContent] = React.useState("");
+
+  const resetForm = React.useCallback(() => {
+    setEditingId(null);
+    setScope("global");
+    setProjectId("");
+    setKind("preference");
+    setContent("");
+  }, []);
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      if (editingId) {
+        return api.memories.update(editingId, {
+          kind,
+          content,
+          ...(scope === "project" && projectId ? { projectId } : {}),
+        });
+      }
+      return api.memories.create({
+        scope,
+        ...(scope === "project" && projectId ? { projectId } : {}),
+        kind,
+        content,
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["memories"] });
+      resetForm();
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => api.memories.delete(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["memories"] }),
+  });
+
+  return (
+    <div className="p-6 space-y-4">
+      <h1 className="text-2xl font-bold text-white">Memory</h1>
+      <Card>
+        <div className="space-y-3">
+          <div>
+            <div className="font-medium text-white">Explicit operator memory</div>
+            <div className="text-xs text-slate-400 mt-1">Memories are explicit context Feather can include in task prompts. They do not grant permissions and cannot bypass approvals, panic, budgets, or denied paths.</div>
+          </div>
+          <div className="grid md:grid-cols-3 gap-3">
+            <select value={scope} onChange={(e) => setScope(e.target.value as "global" | "project")} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white">
+              <option value="global">Global</option>
+              <option value="project">Project</option>
+            </select>
+            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} disabled={scope !== "project"} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white disabled:opacity-50">
+              <option value="">Select project</option>
+              {projectData?.projects.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+            <select value={kind} onChange={(e) => setKind(e.target.value as MemoryKind)} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white">
+              <option value="preference">preference</option>
+              <option value="fact">fact</option>
+              <option value="decision">decision</option>
+              <option value="constraint">constraint</option>
+              <option value="workflow">workflow</option>
+            </select>
+          </div>
+          <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={4} placeholder="Keep task summaries short and direct." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+          <div className="flex justify-end gap-2">
+            {editingId && (
+              <button onClick={resetForm} className="px-3 py-1.5 rounded border border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white text-sm transition-colors">
+                Cancel edit
+              </button>
+            )}
+            <button disabled={!content.trim() || (scope === "project" && !projectId) || saveMut.isPending} onClick={() => saveMut.mutate()} className="px-3 py-1.5 rounded bg-feather-600 hover:bg-feather-500 disabled:opacity-50 text-white text-sm transition-colors">
+              {editingId ? "Update memory" : "Save memory"}
+            </button>
+          </div>
+        </div>
+      </Card>
+
+      {isLoading && <div className="text-slate-400">Loading...</div>}
+
+      <div className="space-y-3">
+        {memoryData?.memories.map((memory) => (
+          <Card key={memory.id}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant={memory.scope === "project" ? "info" : "default"}>{memory.scope}</Badge>
+                  <Badge variant="warning">{memory.kind}</Badge>
+                  {memory.projectId && <span className="text-xs text-slate-500">{projectData?.projects.find((project) => project.id === memory.projectId)?.name ?? memory.projectId}</span>}
+                </div>
+                <div className="text-sm text-white whitespace-pre-wrap">{memory.content}</div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    setEditingId(memory.id);
+                    setScope(memory.scope);
+                    setProjectId(memory.projectId ?? "");
+                    setKind(memory.kind);
+                    setContent(memory.content);
+                  }}
+                  className="px-3 py-1.5 border border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white text-sm rounded transition-colors"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => deleteMut.mutate(memory.id)}
+                  className="px-3 py-1.5 border border-red-700 hover:border-red-500 text-red-300 hover:text-white text-sm rounded transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SkillsPage() {
+  const qc = useQueryClient();
+  const { data: skillData, isLoading } = useQuery({ queryKey: ["skills"], queryFn: () => api.skills.list() });
+  const { data: projectData } = useQuery({ queryKey: ["projects"], queryFn: api.projects.list });
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [form, setForm] = React.useState<SkillFormState>(() => createDefaultSkillForm());
+
+  const resetForm = React.useCallback(() => {
+    setEditingId(null);
+    setForm(createDefaultSkillForm());
+  }, []);
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        scope: form.scope,
+        ...(form.scope === "project" && form.projectId ? { projectId: form.projectId } : {}),
+        id: form.id,
+        name: form.name,
+        purpose: form.purpose || undefined,
+        allowedTools: form.allowedTools.split(/\r?\n|,/).map((tool) => tool.trim()).filter(Boolean),
+        instructions: form.instructions,
+        output: form.output || undefined,
+      };
+      if (editingId) {
+        return api.skills.update(editingId, payload);
+      }
+      return api.skills.create(payload);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["skills"] });
+      resetForm();
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => api.skills.delete(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["skills"] }),
+  });
+
+  return (
+    <div className="p-6 space-y-4">
+      <h1 className="text-2xl font-bold text-white">Skills</h1>
+      <Card>
+        <div className="space-y-3">
+          <div>
+            <div className="font-medium text-white">Local workflow packs</div>
+            <div className="text-xs text-slate-400 mt-1">Skills are local Markdown workflow files. They narrow task behavior but do not bypass approvals or permissions.</div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <select value={form.scope} onChange={(e) => setForm((current) => ({ ...current, scope: e.target.value as "global" | "project" }))} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white">
+              <option value="global">Global</option>
+              <option value="project">Project</option>
+            </select>
+            <select value={form.projectId} onChange={(e) => setForm((current) => ({ ...current, projectId: e.target.value }))} disabled={form.scope !== "project"} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white disabled:opacity-50">
+              <option value="">Select project</option>
+              {projectData?.projects.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+            <input value={form.id} onChange={(e) => setForm((current) => ({ ...current, id: e.target.value }))} disabled={editingId !== null} placeholder="safe-ui-pass" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white disabled:opacity-50" />
+            <input value={form.name} onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))} placeholder="Safe UI Pass" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+            <input value={form.purpose} onChange={(e) => setForm((current) => ({ ...current, purpose: e.target.value }))} placeholder="Improve UI without changing functionality." className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2" />
+            <textarea value={form.allowedTools} onChange={(e) => setForm((current) => ({ ...current, allowedTools: e.target.value }))} rows={3} placeholder="filesystem.readFile&#10;filesystem.writeFile with approval&#10;shell.run: npm test" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2" />
+            <textarea value={form.instructions} onChange={(e) => setForm((current) => ({ ...current, instructions: e.target.value }))} rows={5} placeholder="Do not add new features." className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2" />
+            <textarea value={form.output} onChange={(e) => setForm((current) => ({ ...current, output: e.target.value }))} rows={3} placeholder="summary\nfiles changed\nverification result" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2" />
+          </div>
+          <div className="flex justify-end gap-2">
+            {editingId && (
+              <button onClick={resetForm} className="px-3 py-1.5 rounded border border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white text-sm transition-colors">
+                Cancel edit
+              </button>
+            )}
+            <button disabled={!form.id || !form.name || !form.instructions.trim() || (form.scope === "project" && !form.projectId) || saveMut.isPending} onClick={() => saveMut.mutate()} className="px-3 py-1.5 rounded bg-feather-600 hover:bg-feather-500 disabled:opacity-50 text-white text-sm transition-colors">
+              {editingId ? "Update skill" : "Save skill"}
+            </button>
+          </div>
+        </div>
+      </Card>
+
+      {isLoading && <div className="text-slate-400">Loading...</div>}
+
+      <div className="space-y-3">
+        {skillData?.skills.map((skill) => (
+          <Card key={skill.id}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2 min-w-0">
+                <div className="flex items-center gap-2">
+                  <Badge variant={skill.scope === "project" ? "info" : "default"}>{skill.scope}</Badge>
+                  <span className="font-medium text-white">{skill.name}</span>
+                </div>
+                {skill.purpose && <div className="text-sm text-slate-400">{skill.purpose}</div>}
+                <div className="text-xs text-slate-500">{skill.id}</div>
+                {skill.allowedTools.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {skill.allowedTools.map((tool) => (
+                      <Badge key={tool} variant="info">{tool}</Badge>
+                    ))}
+                  </div>
+                )}
+                <div className="text-sm text-white whitespace-pre-wrap">{skill.instructions}</div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    setEditingId(skill.id);
+                    setForm({
+                      scope: skill.scope,
+                      projectId: skill.projectId ?? "",
+                      id: skill.id.split(":").slice(-1)[0] ?? skill.id,
+                      name: skill.name,
+                      purpose: skill.purpose ?? "",
+                      allowedTools: skill.allowedTools.join("\n"),
+                      instructions: skill.instructions,
+                      output: skill.output ?? "",
+                    });
+                  }}
+                  className="px-3 py-1.5 border border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white text-sm rounded transition-colors"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => deleteMut.mutate(skill.id)}
+                  className="px-3 py-1.5 border border-red-700 hover:border-red-500 text-red-300 hover:text-white text-sm rounded transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1368,6 +1807,8 @@ export default function App() {
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/heartbeat" element={<HeartbeatPage />} />
+          <Route path="/memory" element={<MemoryPage />} />
+          <Route path="/skills" element={<SkillsPage />} />
           <Route path="/providers" element={<ProvidersPage />} />
           <Route path="/budgets" element={<BudgetsPage />} />
           <Route path="/logs" element={<LogsPage />} />

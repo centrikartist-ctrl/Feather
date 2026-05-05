@@ -23,6 +23,7 @@ export type TaskStatus =
 export type Task = {
   id: string;
   projectId?: string;
+  skillId?: string;
   title: string;
   prompt: string;
   status: TaskStatus;
@@ -149,6 +150,35 @@ export type BudgetConfig = {
   taskLimitCents?: number;
   heartbeatDailyLimitCents?: number;
   providerLimits?: Record<string, { dailyLimitCents?: number; taskLimitCents?: number }>;
+};
+
+export type MemoryScope = "global" | "project";
+
+export type MemoryKind = "preference" | "fact" | "decision" | "constraint" | "workflow";
+
+export type Memory = {
+  id: string;
+  scope: MemoryScope;
+  projectId?: string;
+  kind: MemoryKind;
+  content: string;
+  sourceTaskId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SkillScope = "global" | "project";
+
+export type Skill = {
+  id: string;
+  name: string;
+  scope: SkillScope;
+  projectId?: string;
+  path: string;
+  purpose?: string;
+  allowedTools: string[];
+  instructions: string;
+  output?: string;
 };
 
 export type HeartbeatMode = "off" | "manual" | "passive" | "proactive" | "operator";

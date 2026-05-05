@@ -14,9 +14,12 @@ import { readFile, listFiles, prepareWriteFile, commitPreparedWrite, ReadFileInp
 import { gitStatus, gitDiff, gitLog, GitDiffInput, GitLogInput } from "../tools/git.js";
 import { runCommand, RunCommandInput } from "../tools/shell.js";
 import { assertNotPanic } from "../panic/index.js";
+import type { MemoryService } from "../memories/index.js";
+import type { SkillService } from "../skills/index.js";
 
 export type CreateTaskInput = {
   projectId?: string;
+  skillId?: string;
   title: string;
   prompt: string;
   providerId: string;
@@ -37,7 +40,13 @@ type ActiveTaskState = {
   project?: Awaited<ReturnType<ProjectService["getProject"]>>;
   permissionService?: PermissionService;
   hardTaskLimitCents?: number;
+  selectedSkill?: Awaited<ReturnType<SkillService["getTaskSkill"]>>;
   interrupt?: TaskInterrupt;
+};
+
+type TaskRunnerContextServices = {
+  memories?: MemoryService;
+  skills?: SkillService;
 };
 
 class TaskInterruptedError extends Error {
@@ -56,6 +65,7 @@ export class TaskRunner {
     private readonly projects: ProjectService,
     private readonly approvals: ApprovalService,
     private readonly budgets: BudgetService,
+    private readonly contextServices: TaskRunnerContextServices = {},
   ) {}
 
   onEvent(listener: TaskEventListener): () => void {
@@ -95,6 +105,7 @@ export class TaskRunner {
     await db.insert(tasks).values({
       id,
       projectId: input.projectId,
+      skillId: input.skillId ?? null,
       title: input.title,
       prompt: input.prompt,
       status: "queued",
@@ -108,6 +119,7 @@ export class TaskRunner {
     return {
       id,
       projectId: input.projectId,
+      ...(input.skillId ? { skillId: input.skillId } : {}),
       title: input.title,
       prompt: input.prompt,
       status: "queued",
@@ -136,6 +148,7 @@ export class TaskRunner {
       row.projectId ?? undefined,
       row.budgetCents ?? undefined,
     );
+    const selectedSkill = await this.contextServices.skills?.getTaskSkill(row.skillId ?? undefined);
 
     const state: ActiveTaskState = {
       controller: new AbortController(),
@@ -143,6 +156,7 @@ export class TaskRunner {
       project,
       permissionService,
       hardTaskLimitCents,
+      selectedSkill,
     };
 
     this.activeTasks.set(taskId, state);
@@ -164,7 +178,12 @@ export class TaskRunner {
         content: row.prompt,
       });
 
-      const systemPrompt = buildTaskSystemPrompt({ projectRoot: project?.rootPath });
+      const explicitMemories = await this.contextServices.memories?.getPromptMemories(row.projectId ?? undefined);
+      const systemPrompt = buildTaskSystemPrompt({
+        projectRoot: project?.rootPath,
+        ...(explicitMemories ? { explicitMemories } : {}),
+        ...(selectedSkill ? { selectedSkill } : {}),
+      });
 
       for await (const event of provider.startTask({
         taskId,
@@ -428,6 +447,12 @@ export class TaskRunner {
     toolName: string,
     input: unknown,
   ): Promise<void> {
+    if (state.selectedSkill && !this.contextServices.skills?.isToolAllowed(state.selectedSkill, toolName)) {
+      throw new TaskInterruptedError(
+        "blocked",
+        `Selected skill ${state.selectedSkill.name} does not allow tool ${toolName}.`,
+      );
+    }
     const tool = this.prepareToolRequest(state, toolName, input);
     const actionId = nanoid();
 
@@ -666,6 +691,7 @@ function rowToTask(row: typeof tasks.$inferSelect): Task {
   return {
     id: row.id,
     projectId: row.projectId ?? undefined,
+    skillId: row.skillId ?? undefined,
     title: row.title,
     prompt: row.prompt,
     status: row.status as TaskStatus,

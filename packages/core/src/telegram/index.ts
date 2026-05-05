@@ -22,12 +22,16 @@
  */
 
 import https from "node:https";
+import { nanoid } from "nanoid";
+import type { Approval, Observation, Project, Task } from "@feather/shared";
 import type { ApprovalService } from "../approvals/index.js";
 import type { ProjectService } from "../projects/index.js";
 import type { TaskRunner } from "../task-runner/index.js";
 import type { BudgetService } from "../budgets/index.js";
 import type { HeartbeatService } from "../heartbeat/index.js";
 import type { ProviderRegistry } from "../providers/registry.js";
+import type { MemoryService } from "../memories/index.js";
+import type { SkillService } from "../skills/index.js";
 import { getPanicState, activatePanic, deactivatePanic } from "../panic/index.js";
 import { resolveTaskProviderId } from "../providers/routing.js";
 
@@ -36,8 +40,35 @@ export type TelegramConfig = {
   allowedUserIds: number[];
   globalDefaultProviderId?: string;
   allowSingleProviderAutoRoute?: boolean;
+  freeform?: {
+    enabled?: boolean;
+    confirmations?: {
+      readOnly?: boolean;
+      createTask?: boolean;
+    };
+  };
   /** @deprecated Use globalDefaultProviderId. */
   defaultProviderId?: string;
+};
+
+export type TelegramFreeformIntent =
+  | { type: "read_only_question"; projectId?: string; question: string }
+  | { type: "create_task"; projectId?: string; prompt: string; risk: "safe" | "review" }
+  | { type: "approval_response"; decision: "approve" | "reject"; approvalId?: string }
+  | { type: "panic" }
+  | { type: "cancel_task"; taskId?: string }
+  | { type: "unknown"; message: string };
+
+export type PendingTelegramConfirmation = {
+  id: string;
+  chatId: number;
+  userId: number;
+  type: "create_task";
+  projectId?: string;
+  providerId?: string;
+  prompt: string;
+  createdAt: string;
+  expiresAt: string;
 };
 
 type TelegramUpdate = {
@@ -57,7 +88,72 @@ type TelegramServices = {
   budgets: BudgetService;
   heartbeat: HeartbeatService;
   providers: ProviderRegistry;
+  memories: MemoryService;
+  skills: SkillService;
 };
+
+type TelegramTransport = {
+  getUpdates: (offset: number) => Promise<TelegramUpdate[]>;
+  sendMessage: (chatId: number, text: string) => Promise<void>;
+};
+
+const FREEFORM_CREATE_TASK_KEYWORDS = ["fix", "change", "update", "edit", "build", "install", "commit", "push", "write", "create file", "create", "run"];
+const FREEFORM_READ_ONLY_KEYWORDS = ["status", "what's going on", "whats going on", "check", "summarise", "summarize", "recap", "pending approvals", "projects", "what should i work on"];
+const CREATE_TASK_CONFIRMATION_TTL_MS = 15 * 60 * 1000;
+
+export function classifyTelegramFreeformIntent(message: string, options: { projects: Project[]; pendingApprovals: Approval[] }): TelegramFreeformIntent {
+  const normalized = normalizeTelegramText(message);
+  const approvalIdMatch = normalized.match(/^(approve|reject)\s+([a-z0-9_-]+)$/i);
+  if (normalized === "panic" || normalized === "stop everything" || normalized === "emergency stop") {
+    return { type: "panic" };
+  }
+
+  const cancelMatch = normalized.match(/^(cancel|stop task)\s+([a-z0-9_-]+)$/i);
+  if (cancelMatch?.[2]) {
+    return { type: "cancel_task", taskId: cancelMatch[2] };
+  }
+
+  if (approvalIdMatch?.[1]) {
+    return {
+      type: "approval_response",
+      decision: approvalIdMatch[1].toLowerCase() === "approve" ? "approve" : "reject",
+      approvalId: approvalIdMatch[2],
+    };
+  }
+
+  if (normalized === "approve" || normalized === "reject") {
+    const pendingApprovals = options.pendingApprovals;
+    return {
+      type: "approval_response",
+      decision: normalized === "approve" ? "approve" : "reject",
+      approvalId: pendingApprovals.length === 1 ? pendingApprovals[0]?.id : undefined,
+    };
+  }
+
+  if (FREEFORM_READ_ONLY_KEYWORDS.some((keyword) => normalized === keyword || normalized.includes(keyword))) {
+    const project = findProjectMention(options.projects, normalized);
+    return { type: "read_only_question", question: message.trim(), projectId: project?.id };
+  }
+
+  if (FREEFORM_CREATE_TASK_KEYWORDS.some((keyword) => normalized === keyword || normalized.startsWith(`${keyword} `) || normalized.includes(` ${keyword} `))) {
+    const project = findProjectMention(options.projects, normalized);
+    return { type: "create_task", prompt: message.trim(), projectId: project?.id, risk: "review" };
+  }
+
+  return { type: "unknown", message: message.trim() };
+}
+
+function normalizeTelegramText(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function findProjectMention(projects: Project[], normalizedMessage: string): Project | undefined {
+  return projects.find((project) => {
+    const normalizedName = project.name.trim().toLowerCase();
+    const normalizedId = project.id.trim().toLowerCase();
+    return normalizedMessage.includes(normalizedName) || normalizedMessage.includes(normalizedId);
+  });
+}
 
 function telegramRequest(token: string, method: string, body: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -107,15 +203,21 @@ async function sendMessage(token: string, chatId: number, text: string): Promise
 export class TelegramConnector {
   private config: TelegramConfig;
   private services: TelegramServices;
+  private transport: TelegramTransport;
   private offset = 0;
   private running = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveFailures = 0;
   private lastPollError = "";
+  private pendingConfirmations = new Map<string, PendingTelegramConfirmation>();
 
-  constructor(config: TelegramConfig, services: TelegramServices) {
+  constructor(config: TelegramConfig, services: TelegramServices, transport?: Partial<TelegramTransport>) {
     this.config = config;
     this.services = services;
+    this.transport = {
+      getUpdates: transport?.getUpdates ?? ((offset) => getUpdates(this.config.botToken, offset)),
+      sendMessage: transport?.sendMessage ?? ((chatId, text) => sendMessage(this.config.botToken, chatId, text)),
+    };
   }
 
   start(): void {
@@ -140,7 +242,7 @@ export class TelegramConnector {
     if (!this.running) return;
 
     try {
-      const updates = await getUpdates(this.config.botToken, this.offset);
+      const updates = await this.transport.getUpdates(this.offset);
       this.consecutiveFailures = 0;
       this.lastPollError = "";
       for (const update of updates) {
@@ -169,45 +271,129 @@ export class TelegramConnector {
   }
 
   private async handleMessage(msg: NonNullable<TelegramUpdate["message"]>): Promise<void> {
-    const chatId = msg.chat.id;
-    const userId = msg.from?.id;
-    const text = (msg.text ?? "").trim();
+    await this.receiveTextMessage({
+      chatId: msg.chat.id,
+      userId: msg.from?.id,
+      text: (msg.text ?? "").trim(),
+    });
+  }
+
+  async receiveTextMessage(input: { chatId: number; userId?: number; text: string }): Promise<void> {
+    const { chatId, userId } = input;
+    const text = input.text.trim();
 
     if (!this.isAllowedUser(userId)) {
-      await sendMessage(this.config.botToken, chatId, "❌ Unauthorized. This Feather instance does not allow your user ID.");
-      return;
-    }
-
-    const [cmdRaw, ...args] = text.split(" ");
-    const cmd = cmdRaw ?? "";
-    const panic = getPanicState();
-
-    if (panic.active && !this.isAllowedDuringPanic(cmd, args)) {
-      await sendMessage(this.config.botToken, chatId, "🚨 Panic mode is active. Only safe read-only commands are allowed.");
+      await this.transport.sendMessage(chatId, "❌ Unauthorized. This Feather instance does not allow your user ID.");
       return;
     }
 
     try {
-      switch (cmd) {
-        case "/status":   await this.cmdStatus(chatId); break;
-        case "/projects": await this.cmdProjects(chatId); break;
-        case "/task":     await this.cmdTask(chatId, args); break;
-        case "/approvals":await this.cmdApprovals(chatId); break;
-        case "/approve":  await this.cmdApprove(chatId, args[0]); break;
-        case "/reject":   await this.cmdReject(chatId, args[0]); break;
-        case "/recap":    await this.cmdRecap(chatId, args[0]); break;
-        case "/heartbeat":await this.cmdHeartbeat(chatId, args); break;
-        case "/budget":   await this.cmdBudget(chatId); break;
-        case "/help":     await this.cmdHelp(chatId); break;
-        case "/panic":    await this.cmdPanic(chatId); break;
-        case "/resume":   await this.cmdResume(chatId, args); break;
-        case "/cancel":   await this.cmdCancelTask(chatId, args[0]); break;
-        default:
-          await sendMessage(this.config.botToken, chatId, "Unknown command. Use /help.");
+      if (text.startsWith("/")) {
+        const [cmdRaw, ...args] = text.split(" ");
+        const cmd = cmdRaw ?? "";
+        const panic = getPanicState();
+
+        if (panic.active && !this.isAllowedDuringPanic(cmd, args)) {
+          await this.transport.sendMessage(chatId, "🚨 Panic mode is active. Only safe read-only commands are allowed.");
+          return;
+        }
+
+        switch (cmd) {
+          case "/status":   await this.cmdStatus(chatId); break;
+          case "/projects": await this.cmdProjects(chatId); break;
+          case "/task":     await this.cmdTask(chatId, args); break;
+          case "/approvals":await this.cmdApprovals(chatId); break;
+          case "/approve":  await this.cmdApprove(chatId, args[0]); break;
+          case "/reject":   await this.cmdReject(chatId, args[0]); break;
+          case "/recap":    await this.cmdRecap(chatId, args[0]); break;
+          case "/heartbeat":await this.cmdHeartbeat(chatId, args); break;
+          case "/budget":   await this.cmdBudget(chatId); break;
+          case "/help":     await this.cmdHelp(chatId); break;
+          case "/panic":    await this.cmdPanic(chatId); break;
+          case "/resume":   await this.cmdResume(chatId, args); break;
+          case "/cancel":   await this.cmdCancelTask(chatId, args[0]); break;
+          case "/memories": await this.cmdMemories(chatId, args); break;
+          case "/save-memory": await this.cmdSaveMemory(chatId, args); break;
+          case "/forget-memory": await this.cmdForgetMemory(chatId, args[0]); break;
+          case "/skills": await this.cmdSkills(chatId, args[0]); break;
+          case "/use-skill": await this.cmdUseSkill(chatId, args); break;
+          default:
+            await this.transport.sendMessage(chatId, "Unknown command. Use /help.");
+        }
+        return;
       }
+
+      if (this.config.freeform?.enabled === false) {
+        await this.transport.sendMessage(chatId, "Plain Telegram messages are disabled in this Feather config. Use /help for commands.");
+        return;
+      }
+
+      await this.handleFreeformMessage(chatId, userId ?? 0, text);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await sendMessage(this.config.botToken, chatId, `❌ Error: ${msg}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      await this.transport.sendMessage(chatId, `❌ Error: ${errorMessage}`);
+    }
+  }
+
+  private async handleFreeformMessage(chatId: number, userId: number, text: string): Promise<void> {
+    const normalized = normalizeTelegramText(text);
+    const pendingConfirmation = this.getPendingConfirmation(chatId, userId);
+
+    if (normalized === "approve task") {
+      if (!pendingConfirmation) {
+        await this.transport.sendMessage(chatId, "There is no pending task confirmation. Send a plain task request first.");
+        return;
+      }
+      await this.approvePendingTask(chatId, pendingConfirmation);
+      return;
+    }
+
+    if (normalized === "cancel" && pendingConfirmation) {
+      this.pendingConfirmations.delete(this.pendingConfirmationKey(chatId, userId));
+      await this.transport.sendMessage(chatId, "Cancelled the pending task proposal.");
+      return;
+    }
+
+    if (normalized === "resume confirm") {
+      await this.cmdResume(chatId, ["confirm"]);
+      return;
+    }
+
+    const projects = await this.services.projects.listProjects();
+    const pendingApprovals = await this.services.approvals.getPendingApprovals();
+    const intent = classifyTelegramFreeformIntent(text, { projects, pendingApprovals });
+    const panic = getPanicState();
+    if (panic.active && !this.isFreeformAllowedDuringPanic(intent)) {
+      await this.transport.sendMessage(chatId, "🚨 Panic mode is active. Only safe read-only Telegram actions are allowed.");
+      return;
+    }
+
+    switch (intent.type) {
+      case "panic":
+        await this.cmdPanic(chatId);
+        return;
+      case "cancel_task":
+        if (!intent.taskId) {
+          await this.transport.sendMessage(chatId, "Tell me which task to cancel, for example: cancel task_123");
+          return;
+        }
+        await this.cmdCancelTask(chatId, intent.taskId);
+        return;
+      case "approval_response":
+        await this.handleFreeformApproval(chatId, intent, pendingApprovals);
+        return;
+      case "read_only_question":
+        await this.answerReadOnlyQuestion(chatId, intent, projects);
+        return;
+      case "create_task":
+        await this.proposeOrCreateTask(chatId, userId, intent, projects);
+        return;
+      case "unknown":
+      default:
+        await this.transport.sendMessage(
+          chatId,
+          "I can help with status, approvals, projects, panic/cancel, or propose a task. Try 'status', 'show projects', or 'update the README'.",
+        );
     }
   }
 
@@ -226,22 +412,22 @@ export class TelegramConnector {
     if (panic.active && panic.activatedAt) {
       lines.push(`Panic since: ${panic.activatedAt}`);
     }
-    await sendMessage(this.config.botToken, chatId, lines.join("\n"));
+    await this.transport.sendMessage(chatId, lines.join("\n"));
   }
 
   private async cmdProjects(chatId: number): Promise<void> {
     const projects = await this.services.projects.listProjects();
     if (projects.length === 0) {
-      await sendMessage(this.config.botToken, chatId, "No projects registered.");
+      await this.transport.sendMessage(chatId, "No projects registered.");
       return;
     }
     const lines = ["*Projects*", ...projects.map((p) => `• ${p.name} — \`${p.rootPath}\``)];
-    await sendMessage(this.config.botToken, chatId, lines.join("\n"));
+    await this.transport.sendMessage(chatId, lines.join("\n"));
   }
 
   private async cmdTask(chatId: number, args: string[]): Promise<void> {
     if (args.length < 2) {
-      await sendMessage(this.config.botToken, chatId, "Usage: /task <project-name> <prompt>");
+      await this.transport.sendMessage(chatId, "Usage: /task <project-name> <prompt>");
       return;
     }
     const [projectNameRaw, ...promptParts] = args;
@@ -251,7 +437,7 @@ export class TelegramConnector {
     const projects = await this.services.projects.listProjects();
     const project = projects.find((p) => p.name === projectName || p.id === projectName);
     if (!project) {
-      await sendMessage(this.config.botToken, chatId, `Project not found: ${projectName}`);
+      await this.transport.sendMessage(chatId, `Project not found: ${projectName}`);
       return;
     }
 
@@ -272,13 +458,13 @@ export class TelegramConnector {
     });
 
     void this.services.tasks.runTask(task.id);
-    await sendMessage(this.config.botToken, chatId, `✅ Task created: \`${task.id}\`\nPrompt: ${prompt.slice(0, 100)}`);
+    await this.transport.sendMessage(chatId, `✅ Task created: \`${task.id}\`\nPrompt: ${prompt.slice(0, 100)}`);
   }
 
   private async cmdApprovals(chatId: number): Promise<void> {
     const pending = await this.services.approvals.getPendingApprovals();
     if (pending.length === 0) {
-      await sendMessage(this.config.botToken, chatId, "No pending approvals.");
+      await this.transport.sendMessage(chatId, "No pending approvals.");
       return;
     }
 
@@ -293,60 +479,60 @@ export class TelegramConnector {
       lines.push(`Reject: /reject ${a.id}`);
       lines.push("");
     }
-    await sendMessage(this.config.botToken, chatId, lines.join("\n"));
+    await this.transport.sendMessage(chatId, lines.join("\n"));
   }
 
   private async cmdApprove(chatId: number, id: string | undefined): Promise<void> {
     if (!id) {
-      await sendMessage(this.config.botToken, chatId, "Usage: /approve <approval-id>");
+      await this.transport.sendMessage(chatId, "Usage: /approve <approval-id>");
       return;
     }
     await this.services.approvals.resolveApproval(id, "approved", "once");
-    await sendMessage(this.config.botToken, chatId, `✅ Approved: \`${id}\``);
+    await this.transport.sendMessage(chatId, `✅ Approved: \`${id}\``);
   }
 
   private async cmdReject(chatId: number, id: string | undefined): Promise<void> {
     if (!id) {
-      await sendMessage(this.config.botToken, chatId, "Usage: /reject <approval-id>");
+      await this.transport.sendMessage(chatId, "Usage: /reject <approval-id>");
       return;
     }
     await this.services.approvals.resolveApproval(id, "rejected");
-    await sendMessage(this.config.botToken, chatId, `❌ Rejected: \`${id}\``);
+    await this.transport.sendMessage(chatId, `❌ Rejected: \`${id}\``);
   }
 
   private async cmdRecap(chatId: number, projectName: string | undefined): Promise<void> {
     if (!projectName) {
-      await sendMessage(this.config.botToken, chatId, "Usage: /recap <project-name>");
+      await this.transport.sendMessage(chatId, "Usage: /recap <project-name>");
       return;
     }
     const projects = await this.services.projects.listProjects();
     const project = projects.find((p) => p.name === projectName || p.id === projectName);
     if (!project) {
-      await sendMessage(this.config.botToken, chatId, `Project not found: ${projectName}`);
+      await this.transport.sendMessage(chatId, `Project not found: ${projectName}`);
       return;
     }
     const recap = await this.services.heartbeat.generateDailyRecap(project.id);
-    await sendMessage(this.config.botToken, chatId, recap);
+    await this.transport.sendMessage(chatId, recap);
   }
 
   private async cmdHeartbeat(chatId: number, args: string[]): Promise<void> {
     // /heartbeat <project> on|off — placeholder; heartbeat is global in v0.1
     const [, action] = args;
     if (action === "on") {
-      this.services.heartbeat.start(30);
-      await sendMessage(this.config.botToken, chatId, "✅ Heartbeat started.");
+      this.services.heartbeat.start();
+      await this.transport.sendMessage(chatId, "✅ Heartbeat started.");
     } else if (action === "off") {
       this.services.heartbeat.stop();
-      await sendMessage(this.config.botToken, chatId, "⏹ Heartbeat stopped.");
+      await this.transport.sendMessage(chatId, "⏹ Heartbeat stopped.");
     } else {
-      await sendMessage(this.config.botToken, chatId, "Usage: /heartbeat <project> on|off");
+      await this.transport.sendMessage(chatId, "Usage: /heartbeat <project> on|off");
     }
   }
 
   private async cmdBudget(chatId: number): Promise<void> {
     const spend = await this.services.budgets.getDailySpendCents();
     const dollars = (spend / 100).toFixed(2);
-    await sendMessage(this.config.botToken, chatId, `💰 Daily spend: $${dollars}`);
+    await this.transport.sendMessage(chatId, `💰 Daily spend: $${dollars}`);
   }
 
   private async cmdHelp(chatId: number): Promise<void> {
@@ -362,6 +548,12 @@ export class TelegramConnector {
       "/recap <project> — Daily recap",
       "/heartbeat <project> on|off — Toggle heartbeat",
       "/budget — Daily spend",
+      "/memories — List explicit memories",
+      "/save-memory global <text> — Save global memory",
+      "/save-memory project <project> <text> — Save project memory",
+      "/forget-memory <id> — Delete a memory",
+      "/skills [project] — List local skills",
+      "/use-skill <project> <skill> <task prompt> — Create a task with a skill",
       "/help — This message",
       "",
       "*Safety commands*",
@@ -369,33 +561,408 @@ export class TelegramConnector {
       "/resume confirm — Deactivate panic mode",
       "/cancel <taskId> — Cancel a specific task",
     ];
-    await sendMessage(this.config.botToken, chatId, lines.join("\n"));
+    await this.transport.sendMessage(chatId, lines.join("\n"));
   }
 
   private async cmdPanic(chatId: number): Promise<void> {
     await activatePanic("Telegram /panic command");
     await this.services.tasks.cancelAllActive("panic");
     this.services.heartbeat.stop();
-    await sendMessage(this.config.botToken, chatId, "🚨 Panic mode activated. All active tasks have been cancelled. Send /resume confirm to resume.");
+    await this.transport.sendMessage(chatId, "🚨 Panic mode activated. All active tasks have been cancelled. Send /resume confirm to resume.");
   }
 
   private async cmdResume(chatId: number, args: string[]): Promise<void> {
     if (args[0] !== "confirm") {
-      await sendMessage(this.config.botToken, chatId, "⚠️ To deactivate panic mode, send exactly: /resume confirm");
+      await this.transport.sendMessage(chatId, "⚠️ To deactivate panic mode, send exactly: /resume confirm");
       return;
     }
     await deactivatePanic();
-    this.services.heartbeat.start(30);
-    await sendMessage(this.config.botToken, chatId, "✅ Panic mode deactivated. Daemon is running normally.");
+    this.services.heartbeat.start();
+    await this.transport.sendMessage(chatId, "✅ Panic mode deactivated. Daemon is running normally.");
   }
 
   private async cmdCancelTask(chatId: number, taskId: string | undefined): Promise<void> {
     if (!taskId) {
-      await sendMessage(this.config.botToken, chatId, "Usage: /cancel <taskId>");
+      await this.transport.sendMessage(chatId, "Usage: /cancel <taskId>");
       return;
     }
     await this.services.tasks.cancelTask(taskId, "cancelled");
-    await sendMessage(this.config.botToken, chatId, `🛑 Task \`${taskId}\` cancelled.`);
+    await this.transport.sendMessage(chatId, `🛑 Task \`${taskId}\` cancelled.`);
+  }
+
+  private async cmdMemories(chatId: number, args: string[]): Promise<void> {
+    const scopeArg = args[0];
+    const projectArg = args[1];
+    const memories = await this.services.memories.list({
+      ...(scopeArg === "global" || scopeArg === "project" ? { scope: scopeArg } : {}),
+      ...(projectArg ? { projectId: projectArg } : {}),
+    });
+    if (memories.length === 0) {
+      await this.transport.sendMessage(chatId, "No explicit memories saved.");
+      return;
+    }
+    const lines = ["*Explicit Memories*", ""];
+    for (const memory of memories.slice(0, 20)) {
+      lines.push(`\`${memory.id}\` [${memory.scope}/${memory.kind}] ${memory.content}`);
+    }
+    await this.transport.sendMessage(chatId, lines.join("\n"));
+  }
+
+  private async cmdSaveMemory(chatId: number, args: string[]): Promise<void> {
+    const scopeArg = args[0];
+    if (scopeArg !== "global" && scopeArg !== "project") {
+      await this.transport.sendMessage(chatId, "Usage: /save-memory global <text> OR /save-memory project <project> <text>");
+      return;
+    }
+
+    const memoryKinds = new Set(["preference", "fact", "decision", "constraint", "workflow"]);
+    let kind: "preference" | "fact" | "decision" | "constraint" | "workflow" = "fact";
+    let projectId: string | undefined;
+    let contentStartIndex = 1;
+
+    if (scopeArg === "project") {
+      const projectArg = args[1];
+      if (!projectArg) {
+        await this.transport.sendMessage(chatId, "Usage: /save-memory project <project> <text>");
+        return;
+      }
+      const projects = await this.services.projects.listProjects();
+      const project = projects.find((entry) => entry.id === projectArg || entry.name === projectArg);
+      if (!project) {
+        await this.transport.sendMessage(chatId, `Project not found: ${projectArg}`);
+        return;
+      }
+      projectId = project.id;
+      contentStartIndex = 2;
+    }
+
+    const kindCandidate = args[contentStartIndex];
+    if (kindCandidate && memoryKinds.has(kindCandidate)) {
+      kind = kindCandidate as typeof kind;
+      contentStartIndex += 1;
+    }
+
+    const content = args.slice(contentStartIndex).join(" ").trim();
+    if (!content) {
+      await this.transport.sendMessage(chatId, "Memory content cannot be empty.");
+      return;
+    }
+
+    const memory = await this.services.memories.create({
+      scope: scopeArg,
+      ...(projectId ? { projectId } : {}),
+      kind,
+      content,
+    });
+    await this.transport.sendMessage(chatId, `Saved memory \`${memory.id}\` as ${memory.scope}/${memory.kind}.`);
+  }
+
+  private async cmdForgetMemory(chatId: number, id: string | undefined): Promise<void> {
+    if (!id) {
+      await this.transport.sendMessage(chatId, "Usage: /forget-memory <id>");
+      return;
+    }
+    await this.services.memories.delete(id);
+    await this.transport.sendMessage(chatId, `Deleted memory \`${id}\`.`);
+  }
+
+  private async cmdSkills(chatId: number, projectArg: string | undefined): Promise<void> {
+    let projectId: string | undefined;
+    if (projectArg) {
+      const projects = await this.services.projects.listProjects();
+      const project = projects.find((entry) => entry.id === projectArg || entry.name === projectArg);
+      if (!project) {
+        await this.transport.sendMessage(chatId, `Project not found: ${projectArg}`);
+        return;
+      }
+      projectId = project.id;
+    }
+
+    const skills = await this.services.skills.list(projectId ? { scope: "project", projectId } : {});
+    if (skills.length === 0) {
+      await this.transport.sendMessage(chatId, "No skills found.");
+      return;
+    }
+    const lines = ["*Skills*", ""];
+    for (const skill of skills) {
+      lines.push(`\`${skill.id}\` ${skill.name} [${skill.scope}]`);
+    }
+    await this.transport.sendMessage(chatId, lines.join("\n"));
+  }
+
+  private async cmdUseSkill(chatId: number, args: string[]): Promise<void> {
+    if (args.length < 3) {
+      await this.transport.sendMessage(chatId, "Usage: /use-skill <project> <skill> <task prompt>");
+      return;
+    }
+
+    const [projectArg, skillArg, ...promptParts] = args;
+    const prompt = promptParts.join(" ").trim();
+    const projects = await this.services.projects.listProjects();
+    const project = projects.find((entry) => entry.id === projectArg || entry.name === projectArg);
+    if (!project) {
+      await this.transport.sendMessage(chatId, `Project not found: ${projectArg}`);
+      return;
+    }
+
+    const skills = await this.services.skills.list({ projectId: project.id });
+    const skill = skills.find((entry) => entry.id === skillArg || entry.name === skillArg || entry.id.endsWith(`:${skillArg}`));
+    if (!skill) {
+      await this.transport.sendMessage(chatId, `Skill not found: ${skillArg}`);
+      return;
+    }
+
+    const providerId = await resolveTaskProviderId({
+      projectId: project.id,
+      globalDefaultProviderId: this.config.globalDefaultProviderId ?? this.config.defaultProviderId,
+      allowSingleProviderAutoRoute: this.config.allowSingleProviderAutoRoute === true,
+      projects: this.services.projects,
+      providers: this.services.providers,
+    });
+    const task = await this.services.tasks.createTask({
+      projectId: project.id,
+      skillId: skill.id,
+      title: prompt.slice(0, 60),
+      prompt,
+      providerId,
+      createdBy: "telegram",
+    });
+    void this.services.tasks.runTask(task.id);
+    await this.transport.sendMessage(chatId, `✅ Task created with skill \`${skill.name}\`: \`${task.id}\``);
+  }
+
+  private async handleFreeformApproval(
+    chatId: number,
+    intent: Extract<TelegramFreeformIntent, { type: "approval_response" }>,
+    pendingApprovals: Approval[],
+  ): Promise<void> {
+    if (!intent.approvalId) {
+      if (pendingApprovals.length === 0) {
+        await this.transport.sendMessage(chatId, "There are no pending approvals.");
+        return;
+      }
+      if (pendingApprovals.length > 1) {
+        await this.transport.sendMessage(chatId, "Multiple approvals are pending. Reply with 'approve <id>' or 'reject <id>'.");
+        return;
+      }
+    }
+
+    const approvalId = intent.approvalId ?? pendingApprovals[0]!.id;
+    if (intent.decision === "approve") {
+      await this.cmdApprove(chatId, approvalId);
+      return;
+    }
+    await this.cmdReject(chatId, approvalId);
+  }
+
+  private async answerReadOnlyQuestion(
+    chatId: number,
+    intent: Extract<TelegramFreeformIntent, { type: "read_only_question" }>,
+    projects: Project[],
+  ): Promise<void> {
+    const normalized = normalizeTelegramText(intent.question);
+    if (normalized.includes("project")) {
+      await this.cmdProjects(chatId);
+      return;
+    }
+    if (normalized.includes("approval")) {
+      await this.cmdApprovals(chatId);
+      return;
+    }
+    if (normalized.includes("budget")) {
+      await this.cmdBudget(chatId);
+      return;
+    }
+    if (normalized.includes("recap") || normalized.includes("summarise today") || normalized.includes("summarize today")) {
+      const project = this.resolveReadOnlyProject(intent.projectId, projects);
+      if (!project && projects.length > 1) {
+        await this.transport.sendMessage(chatId, "Tell me which project you want a recap for.");
+        return;
+      }
+      if (project) {
+        await this.cmdRecap(chatId, project.id);
+        return;
+      }
+    }
+
+    if (normalized.includes("what should i work on")) {
+      await this.transport.sendMessage(chatId, await this.buildNextWorkSummary(intent.projectId));
+      return;
+    }
+
+    await this.transport.sendMessage(chatId, await this.buildStatusSummary(intent.projectId));
+  }
+
+  private async proposeOrCreateTask(
+    chatId: number,
+    userId: number,
+    intent: Extract<TelegramFreeformIntent, { type: "create_task" }>,
+    projects: Project[],
+  ): Promise<void> {
+    if (projects.length === 0) {
+      await this.transport.sendMessage(chatId, "No projects are registered yet, so I cannot turn that into a task.");
+      return;
+    }
+
+    const project = this.resolveCreateTaskProject(intent.projectId, projects);
+    if (!project) {
+      await this.transport.sendMessage(chatId, "I need a project for that task. Mention the project name or register only one project.");
+      return;
+    }
+
+    const providerId = await resolveTaskProviderId({
+      projectId: project.id,
+      globalDefaultProviderId: this.config.globalDefaultProviderId ?? this.config.defaultProviderId,
+      allowSingleProviderAutoRoute: this.config.allowSingleProviderAutoRoute === true,
+      projects: this.services.projects,
+      providers: this.services.providers,
+    });
+
+    const createTaskNeedsConfirmation = this.config.freeform?.confirmations?.createTask !== false;
+    if (!createTaskNeedsConfirmation) {
+      const task = await this.createTelegramTask(project.id, providerId, intent.prompt);
+      await this.transport.sendMessage(chatId, `✅ Task created: \`${task.id}\`\nPrompt: ${intent.prompt.slice(0, 100)}`);
+      return;
+    }
+
+    const now = Date.now();
+    const confirmation: PendingTelegramConfirmation = {
+      id: nanoid(),
+      chatId,
+      userId,
+      type: "create_task",
+      projectId: project.id,
+      providerId,
+      prompt: intent.prompt,
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + CREATE_TASK_CONFIRMATION_TTL_MS).toISOString(),
+    };
+    this.pendingConfirmations.set(this.pendingConfirmationKey(chatId, userId), confirmation);
+
+    await this.transport.sendMessage(
+      chatId,
+      [
+        "I can create this task.",
+        "",
+        `Project: ${project.name}`,
+        `Provider: ${providerId}`,
+        `Risk: ${intent.risk === "review" ? "may write files / run shell" : "safe"}`,
+        `Prompt: ${intent.prompt}`,
+        "",
+        "Reply \"approve task\" to start or \"cancel\".",
+      ].join("\n"),
+    );
+  }
+
+  private async approvePendingTask(chatId: number, confirmation: PendingTelegramConfirmation): Promise<void> {
+    const panic = getPanicState();
+    if (panic.active) {
+      await this.transport.sendMessage(chatId, "🚨 Panic mode is active. Task proposals cannot be approved right now.");
+      return;
+    }
+
+    const task = await this.createTelegramTask(confirmation.projectId, confirmation.providerId, confirmation.prompt);
+    this.pendingConfirmations.delete(this.pendingConfirmationKey(confirmation.chatId, confirmation.userId));
+    await this.transport.sendMessage(chatId, `✅ Task created: \`${task.id}\`\nPrompt: ${confirmation.prompt.slice(0, 100)}`);
+  }
+
+  private async createTelegramTask(projectId: string | undefined, providerId: string | undefined, prompt: string): Promise<Task> {
+    if (!providerId) {
+      throw new Error("No provider selected for Telegram task.");
+    }
+    const task = await this.services.tasks.createTask({
+      projectId,
+      title: prompt.slice(0, 60),
+      prompt,
+      providerId,
+      createdBy: "telegram",
+    });
+    void this.services.tasks.runTask(task.id);
+    return task;
+  }
+
+  private resolveReadOnlyProject(projectId: string | undefined, projects: Project[]): Project | undefined {
+    if (projectId) {
+      return projects.find((project) => project.id === projectId);
+    }
+    if (projects.length === 1) {
+      return projects[0];
+    }
+    return undefined;
+  }
+
+  private resolveCreateTaskProject(projectId: string | undefined, projects: Project[]): Project | undefined {
+    if (projectId) {
+      return projects.find((project) => project.id === projectId);
+    }
+    if (projects.length === 1) {
+      return projects[0];
+    }
+    return undefined;
+  }
+
+  private async buildStatusSummary(projectId?: string): Promise<string> {
+    const panic = getPanicState();
+    const [projects, approvals, tasks, observations, spendCents] = await Promise.all([
+      this.services.projects.listProjects(),
+      this.services.approvals.getPendingApprovals(projectId),
+      this.services.tasks.listTasks(projectId),
+      this.services.heartbeat.getObservations(projectId),
+      this.services.budgets.getDailySpendCents(projectId),
+    ]);
+    const activeTasks = tasks.filter((task) => task.status === "queued" || task.status === "running");
+    const project = projectId ? projects.find((item) => item.id === projectId) : undefined;
+    const lines = [
+      `Feather is ${panic.active ? "in panic mode" : "running normally"}.`,
+      project ? `Project: ${project.name}` : `Projects: ${projects.length}`,
+      `Active tasks: ${activeTasks.length}`,
+      `Pending approvals: ${approvals.length}`,
+      `Recent observations: ${observations.slice(-3).length}`,
+      `Daily spend: $${(spendCents / 100).toFixed(2)}`,
+    ];
+    const latestObservation = observations.slice(-1)[0];
+    if (latestObservation) {
+      lines.push(`Latest observation: ${latestObservation.title}`);
+    }
+    return lines.join("\n");
+  }
+
+  private async buildNextWorkSummary(projectId?: string): Promise<string> {
+    const [approvals, observations, tasks] = await Promise.all([
+      this.services.approvals.getPendingApprovals(projectId),
+      this.services.heartbeat.getObservations(projectId),
+      this.services.tasks.listTasks(projectId),
+    ]);
+    if (approvals.length > 0) {
+      const approval = approvals[0]!;
+      return `The clearest blocker is approval ${approval.id}: ${approval.title}. Reply 'approve ${approval.id}' or 'reject ${approval.id}'.`;
+    }
+    const suggestedObservation = [...observations].reverse().find((observation) => observation.suggestedActions.length > 0);
+    if (suggestedObservation?.suggestedActions[0]) {
+      return `Suggested next step: ${suggestedObservation.suggestedActions[0].label}.`;
+    }
+    const activeTask = tasks.find((task) => task.status === "running" || task.status === "queued");
+    if (activeTask) {
+      return `You already have an active task: ${activeTask.title} (${activeTask.id}).`;
+    }
+    return "Nothing urgent is pending. Ask me for status, approvals, or propose a new task.";
+  }
+
+  private pendingConfirmationKey(chatId: number, userId: number): string {
+    return `${chatId}:${userId}`;
+  }
+
+  private getPendingConfirmation(chatId: number, userId: number): PendingTelegramConfirmation | undefined {
+    const key = this.pendingConfirmationKey(chatId, userId);
+    const pending = this.pendingConfirmations.get(key);
+    if (!pending) {
+      return undefined;
+    }
+    if (Date.parse(pending.expiresAt) <= Date.now()) {
+      this.pendingConfirmations.delete(key);
+      return undefined;
+    }
+    return pending;
   }
 
   /**
@@ -418,7 +985,20 @@ export class TelegramConnector {
     ].join("\n");
 
     for (const userId of this.config.allowedUserIds) {
-      await sendMessage(this.config.botToken, userId, text);
+      await this.transport.sendMessage(userId, text);
+    }
+  }
+
+  private isFreeformAllowedDuringPanic(intent: TelegramFreeformIntent): boolean {
+    switch (intent.type) {
+      case "read_only_question":
+      case "cancel_task":
+      case "panic":
+        return true;
+      case "approval_response":
+        return intent.decision === "reject";
+      default:
+        return false;
     }
   }
 
@@ -428,6 +1008,8 @@ export class TelegramConnector {
       case "/projects":
       case "/approvals":
       case "/budget":
+      case "/memories":
+      case "/skills":
       case "/help":
       case "/recap":
       case "/reject":

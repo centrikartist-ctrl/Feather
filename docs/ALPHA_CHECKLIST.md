@@ -64,6 +64,13 @@
 
 - [ ] `/status` works
 - [ ] `/projects` works
+- [ ] plain `status` works
+- [ ] plain task request creates a confirmation instead of a task
+- [ ] `approve task` starts the proposed task
+- [ ] `/memories` works
+- [ ] `/save-memory global <text>` works
+- [ ] `/skills` works
+- [ ] `/use-skill <project> <skill> <task prompt>` works
 - [ ] /panic activates panic
 - [ ] /task is blocked during panic
 - [ ] /approve is blocked during panic
@@ -87,12 +94,48 @@
 
 - [ ] Run heartbeat twice
 - [ ] Confirm duplicate observations are deduped
+- [ ] Confirm off mode suppresses runs
+- [ ] Confirm manual mode runs only on manual trigger
+- [ ] Confirm proactive mode adds suggested actions but does not create tasks
+- [ ] Confirm quiet hours suppress scheduled runs
+- [ ] Confirm heartbeat instructions appear in recap output
+- [ ] Confirm explicit memory can influence recap wording without bypassing safety
 - [ ] Confirm heartbeat stops during panic
 - [ ] Confirm heartbeat resumes after resume
 - [ ] Generate daily recap
+
+## Memory
+
+- [ ] Create global memory
+- [ ] Create project memory
+- [ ] Edit memory
+- [ ] Delete memory
+- [ ] Confirm prompt builder includes memory context
+- [ ] Confirm memory does not bypass approval-gated tool paths
+
+## Skills
+
+- [ ] Load global skill
+- [ ] Load project skill
+- [ ] Create task with selected skill
+- [ ] Confirm prompt builder includes selected skill
+- [ ] Confirm disallowed tool is blocked when a skill is selected
+- [ ] Confirm skill does not expand permissions
+
+## Live API smoke (`gpt-4o-mini`)
+
+- [ ] Validate provider
+- [ ] Exact-text smoke task passes
+- [ ] Review-gated write approve passes
+- [ ] Review-gated write reject passes
+- [ ] Cancellation smoke passes
+- [ ] Budget estimate smoke passes
+- [ ] Panic/resume smoke passes
 
 ## Docs
 
 - [ ] README matches actual behaviour
 - [ ] Known limitations are honest
-- [ ] v0.2-only features are not claimed as v0.1
+- [ ] Telegram freeform doc matches actual deterministic routing
+- [ ] Memory doc matches explicit-only behavior
+- [ ] Skills doc states that skills do not grant permissions

@@ -80,6 +80,34 @@ export const ProviderConfigSchema = z.object({
   updatedAt: z.string(),
 });
 
+export const MemoryScopeSchema = z.enum(["global", "project"]);
+export const MemoryKindSchema = z.enum(["preference", "fact", "decision", "constraint", "workflow"]);
+
+export const MemorySchema = z.object({
+  id: z.string(),
+  scope: MemoryScopeSchema,
+  projectId: z.string().optional(),
+  kind: MemoryKindSchema,
+  content: z.string(),
+  sourceTaskId: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const SkillScopeSchema = z.enum(["global", "project"]);
+
+export const SkillSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  scope: SkillScopeSchema,
+  projectId: z.string().optional(),
+  path: z.string(),
+  purpose: z.string().optional(),
+  allowedTools: z.array(z.string()),
+  instructions: z.string(),
+  output: z.string().optional(),
+});
+
 export const HeartbeatModeSchema = z.enum(["off", "manual", "passive", "proactive", "operator"]);
 
 export const SafetyPresetSchema = z.enum(["conservative", "builder", "operator"]);
@@ -117,11 +145,28 @@ export const ProjectFileConfigSchema = z.object({
     .object({
       enabled: z.boolean().optional(),
       mode: HeartbeatModeSchema.optional(),
+      intervalMinutes: z.number().optional(),
       interval_minutes: z.number().optional(),
       checks: z
         .object({
-          git_dirty: z.boolean().optional(),
-          pending_approvals: z.boolean().optional(),
+          git_dirty: z.union([
+            z.boolean(),
+            z.object({ enabled: z.boolean().optional(), cooldownMinutes: z.number().optional(), cooldown_minutes: z.number().optional() }),
+          ]).optional(),
+          pending_approvals: z.union([
+            z.boolean(),
+            z.object({ enabled: z.boolean().optional(), cooldownMinutes: z.number().optional(), cooldown_minutes: z.number().optional() }),
+          ]).optional(),
+          daily_recap: z.union([
+            z.boolean(),
+            z.object({ enabled: z.boolean().optional(), time: z.string().optional() }),
+          ]).optional(),
+        })
+        .optional(),
+      quietHours: z
+        .object({
+          start: z.string(),
+          end: z.string(),
         })
         .optional(),
       quiet_hours: z
@@ -130,6 +175,7 @@ export const ProjectFileConfigSchema = z.object({
           end: z.string(),
         })
         .optional(),
+      instructions: z.array(z.string()).optional(),
     })
     .optional(),
   agent: z
@@ -143,6 +189,7 @@ export const ProjectFileConfigSchema = z.object({
 
 export const CreateTaskRequestSchema = z.object({
   projectId: z.string().optional(),
+  skillId: z.string().optional(),
   title: z.string().min(1).max(200),
   prompt: z.string().min(1),
   providerId: z.string().optional(),

@@ -46,6 +46,24 @@ export type AgentProfileRequest = {
   reporting: string;
 };
 
+export type ProjectConfigResponse = {
+  name?: string;
+  heartbeat?: {
+    enabled?: boolean;
+    mode?: "off" | "manual" | "passive" | "proactive" | "operator";
+    intervalMinutes?: number;
+    interval_minutes?: number;
+    quietHours?: { start: string; end: string };
+    quiet_hours?: { start: string; end: string };
+    checks?: {
+      git_dirty?: boolean | { enabled?: boolean; cooldownMinutes?: number; cooldown_minutes?: number };
+      pending_approvals?: boolean | { enabled?: boolean; cooldownMinutes?: number; cooldown_minutes?: number };
+      daily_recap?: boolean | { enabled?: boolean; time?: string };
+    };
+    instructions?: string[];
+  };
+};
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body !== undefined;
   const res = await fetch(`${API_BASE}${path}`, {
@@ -84,10 +102,13 @@ export const api = {
   projects: {
     list: () => request<{ projects: import("@feather/shared").Project[] }>("/projects"),
     get: (id: string) => request<{ project: import("@feather/shared").Project }>(`/projects/${id}`),
+    config: (id: string) => request<{ config: ProjectConfigResponse | null }>(`/projects/${id}/config`),
     add: (body: { name: string; rootPath: string }) =>
       request<{ project: import("@feather/shared").Project }>("/projects", { method: "POST", body: JSON.stringify(body) }),
     update: (id: string, body: { name?: string; defaultProviderId?: string | null; codingProviderId?: string | null; planningProviderId?: string | null; heartbeatEnabled?: boolean }) =>
       request<{ project: import("@feather/shared").Project }>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    updateHeartbeat: (id: string, body: { enabled: boolean; mode: "off" | "manual" | "passive" | "proactive"; intervalMinutes: number; quietHours?: { start: string; end: string }; checks: { git_dirty: { enabled: boolean; cooldownMinutes: number }; pending_approvals: { enabled: boolean; cooldownMinutes: number }; daily_recap: { enabled: boolean; time?: string } }; instructions: string[] }) =>
+      request<{ config: ProjectConfigResponse }>(`/projects/${id}/heartbeat`, { method: "PATCH", body: JSON.stringify(body) }),
     recap: (id: string) => request<{ recap: string }>(`/projects/${id}/recap`),
   },
 
@@ -95,10 +116,42 @@ export const api = {
     list: (projectId?: string) =>
       request<{ tasks: import("@feather/shared").Task[] }>(`/tasks${projectId ? `?projectId=${projectId}` : ""}`),
     get: (id: string) => request<{ task: import("@feather/shared").Task }>(`/tasks/${id}`),
-    create: (body: { projectId?: string; title: string; prompt: string; providerId?: string }) =>
+    create: (body: { projectId?: string; skillId?: string; title: string; prompt: string; providerId?: string }) =>
       request<{ task: import("@feather/shared").Task }>("/tasks", { method: "POST", body: JSON.stringify(body) }),
     cancel: (id: string) => request<{ ok: boolean }>(`/tasks/${id}`, { method: "DELETE" }),
     events: (id: string) => request<{ events: import("@feather/shared").TaskEvent[] }>(`/tasks/${id}/events`),
+  },
+
+  memories: {
+    list: (filters?: { scope?: "global" | "project"; projectId?: string; kind?: import("@feather/shared").MemoryKind }) => {
+      const params = new URLSearchParams();
+      if (filters?.scope) params.set("scope", filters.scope);
+      if (filters?.projectId) params.set("projectId", filters.projectId);
+      if (filters?.kind) params.set("kind", filters.kind);
+      const query = params.toString();
+      return request<{ memories: import("@feather/shared").Memory[] }>(`/memories${query ? `?${query}` : ""}`);
+    },
+    create: (body: { scope: "global" | "project"; projectId?: string; kind: import("@feather/shared").MemoryKind; content: string; sourceTaskId?: string }) =>
+      request<{ memory: import("@feather/shared").Memory }>("/memories", { method: "POST", body: JSON.stringify(body) }),
+    update: (id: string, body: { projectId?: string; kind?: import("@feather/shared").MemoryKind; content?: string }) =>
+      request<{ memory: import("@feather/shared").Memory }>(`/memories/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    delete: (id: string) => request<{ ok: boolean }>(`/memories/${id}`, { method: "DELETE" }),
+  },
+
+  skills: {
+    list: (filters?: { scope?: "global" | "project"; projectId?: string }) => {
+      const params = new URLSearchParams();
+      if (filters?.scope) params.set("scope", filters.scope);
+      if (filters?.projectId) params.set("projectId", filters.projectId);
+      const query = params.toString();
+      return request<{ skills: import("@feather/shared").Skill[] }>(`/skills${query ? `?${query}` : ""}`);
+    },
+    get: (id: string) => request<{ skill: import("@feather/shared").Skill }>(`/skills/${encodeURIComponent(id)}`),
+    create: (body: { scope: "global" | "project"; projectId?: string; id: string; name: string; purpose?: string; allowedTools: string[]; instructions: string; output?: string }) =>
+      request<{ skill: import("@feather/shared").Skill }>("/skills", { method: "POST", body: JSON.stringify(body) }),
+    update: (id: string, body: { name?: string; purpose?: string; allowedTools?: string[]; instructions?: string; output?: string }) =>
+      request<{ skill: import("@feather/shared").Skill }>(`/skills/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+    delete: (id: string) => request<{ ok: boolean }>(`/skills/${encodeURIComponent(id)}`, { method: "DELETE" }),
   },
 
   approvals: {

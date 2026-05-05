@@ -13,3 +13,5 @@ export * from "./config/index.js";
 export * from "./db/index.js";
 export * from "./telegram/index.js";
 export * from "./onboarding/index.js";
+export * from "./memories/index.js";
+export * from "./skills/index.js";

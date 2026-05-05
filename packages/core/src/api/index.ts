@@ -11,6 +11,8 @@ import type { HeartbeatService } from "../heartbeat/index.js";
 import type { ProviderRegistry } from "../providers/registry.js";
 import type { ProviderConfigService } from "../providers/service.js";
 import type { BudgetService } from "../budgets/index.js";
+import type { MemoryService } from "../memories/index.js";
+import type { SkillService } from "../skills/index.js";
 import { z } from "zod";
 import {
   CreateTaskRequestSchema,
@@ -30,8 +32,10 @@ import {
   getProviderRoutingConfig,
   loadGlobalAgentInstructions,
   loadGlobalConfig,
+  loadProjectFileConfig,
   saveGlobalAgentInstructions,
   saveGlobalConfig,
+  updateProjectHeartbeatConfig,
 } from "../config/index.js";
 import { buildAgentMarkdown, deriveOnboardingState, extractAgentName, normalizeOnboardingList } from "../onboarding/index.js";
 
@@ -43,8 +47,43 @@ export type ApiServices = {
   providers: ProviderRegistry;
   providerConfigs: ProviderConfigService;
   budgets: BudgetService;
+  memories: MemoryService;
+  skills: SkillService;
   logger: Logger;
 };
+
+const MemoryRequestSchema = z.object({
+  scope: z.enum(["global", "project"]),
+  projectId: z.string().min(1).optional(),
+  kind: z.enum(["preference", "fact", "decision", "constraint", "workflow"]),
+  content: z.string().trim().min(1),
+  sourceTaskId: z.string().min(1).optional(),
+});
+
+const UpdateMemoryRequestSchema = z.object({
+  projectId: z.string().min(1).optional(),
+  kind: z.enum(["preference", "fact", "decision", "constraint", "workflow"]).optional(),
+  content: z.string().trim().min(1).optional(),
+});
+
+const SkillRequestSchema = z.object({
+  scope: z.enum(["global", "project"]),
+  projectId: z.string().min(1).optional(),
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  purpose: z.string().trim().optional(),
+  allowedTools: z.array(z.string().trim().min(1)).default([]),
+  instructions: z.string().trim().min(1),
+  output: z.string().trim().optional(),
+});
+
+const UpdateSkillRequestSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  purpose: z.string().trim().optional(),
+  allowedTools: z.array(z.string().trim().min(1)).optional(),
+  instructions: z.string().trim().min(1).optional(),
+  output: z.string().trim().optional(),
+});
 
 const ProviderConfigRequestSchema = z.discriminatedUnion("type", [
   z.object({
@@ -392,6 +431,38 @@ export async function createApiServer(services: ApiServices) {
     return { config };
   });
 
+  app.patch<{ Params: { id: string }; Body: unknown }>("/projects/:id/heartbeat", async (req) => {
+    assertNotPanic();
+    const project = await services.projects.getProject(req.params.id);
+    const input = z.object({
+      enabled: z.boolean(),
+      mode: z.enum(["off", "manual", "passive", "proactive"]),
+      intervalMinutes: z.number().int().positive(),
+      quietHours: z.object({ start: z.string(), end: z.string() }).optional(),
+      checks: z.object({
+        git_dirty: z.object({ enabled: z.boolean(), cooldownMinutes: z.number().int().nonnegative() }),
+        pending_approvals: z.object({ enabled: z.boolean(), cooldownMinutes: z.number().int().nonnegative() }),
+        daily_recap: z.object({ enabled: z.boolean(), time: z.string().optional() }),
+      }),
+      instructions: z.array(z.string()),
+    }).parse(req.body);
+    const current = loadProjectFileConfig(project.rootPath);
+    const next = updateProjectHeartbeatConfig(project.rootPath, {
+      ...(current?.heartbeat ?? {}),
+      enabled: input.enabled,
+      mode: input.mode,
+      intervalMinutes: input.intervalMinutes,
+      ...(input.quietHours ? { quietHours: input.quietHours } : {}),
+      checks: {
+        git_dirty: input.checks.git_dirty,
+        pending_approvals: input.checks.pending_approvals,
+        daily_recap: input.checks.daily_recap,
+      },
+      instructions: input.instructions,
+    });
+    return { config: next };
+  });
+
   app.get<{ Params: { id: string } }>("/projects/:id/recap", async (req) => {
     const recap = await services.heartbeat.generateDailyRecap(req.params.id);
     return { recap };
@@ -421,6 +492,7 @@ export async function createApiServer(services: ApiServices) {
 
     const task = await services.tasks.createTask({
       ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
+      ...(input.skillId !== undefined ? { skillId: input.skillId } : {}),
       title: input.title,
       prompt: input.prompt,
       providerId,
@@ -593,6 +665,73 @@ export async function createApiServer(services: ApiServices) {
   app.get<{ Querystring: { projectId?: string } }>("/budgets/daily-spend", async (req) => {
     const cents = await services.budgets.getDailySpendCents(req.query.projectId);
     return { dailySpendCents: cents };
+  });
+
+  // ── Memories ─────────────────────────────────────────────────────────────
+  app.get<{ Querystring: { scope?: "global" | "project"; projectId?: string; kind?: "preference" | "fact" | "decision" | "constraint" | "workflow" } }>("/memories", async (req) => {
+    const list = await services.memories.list({
+      ...(req.query.scope ? { scope: req.query.scope } : {}),
+      ...(req.query.projectId ? { projectId: req.query.projectId } : {}),
+      ...(req.query.kind ? { kind: req.query.kind } : {}),
+    });
+    return { memories: list };
+  });
+
+  app.post<{ Body: unknown }>("/memories", async (req) => {
+    assertNotPanic();
+    const input = MemoryRequestSchema.parse(req.body);
+    const memory = await services.memories.create(input);
+    return { memory };
+  });
+
+  app.patch<{ Params: { id: string }; Body: unknown }>("/memories/:id", async (req) => {
+    assertNotPanic();
+    const input = UpdateMemoryRequestSchema.parse(req.body);
+    const memory = await services.memories.update(req.params.id, input);
+    return { memory };
+  });
+
+  app.delete<{ Params: { id: string } }>("/memories/:id", async (req) => {
+    assertNotPanic();
+    await services.memories.delete(req.params.id);
+    return { ok: true };
+  });
+
+  // ── Skills ───────────────────────────────────────────────────────────────
+  app.get<{ Querystring: { scope?: "global" | "project"; projectId?: string } }>("/skills", async (req) => {
+    const list = await services.skills.list({
+      ...(req.query.scope ? { scope: req.query.scope } : {}),
+      ...(req.query.projectId ? { projectId: req.query.projectId } : {}),
+    });
+    return { skills: list };
+  });
+
+  app.get<{ Params: { id: string } }>("/skills/:id", async (req) => {
+    const skill = await services.skills.get(req.params.id);
+    if (!skill) {
+      throw new Error(`Skill not found: ${req.params.id}`);
+    }
+    return { skill };
+  });
+
+  app.post<{ Body: unknown }>("/skills", async (req) => {
+    assertNotPanic();
+    const input = SkillRequestSchema.parse(req.body);
+    const skill = await services.skills.create(input);
+    return { skill };
+  });
+
+  app.patch<{ Params: { id: string }; Body: unknown }>("/skills/:id", async (req) => {
+    assertNotPanic();
+    const input = UpdateSkillRequestSchema.parse(req.body);
+    const skill = await services.skills.update(req.params.id, input);
+    return { skill };
+  });
+
+  app.delete<{ Params: { id: string } }>("/skills/:id", async (req) => {
+    assertNotPanic();
+    await services.skills.delete(req.params.id);
+    return { ok: true };
   });
 
   // ── Dashboard static assets ──────────────────────────────────────────────

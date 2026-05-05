@@ -6,8 +6,9 @@ import type { Observation, SuggestedAction } from "@feather/shared";
 import type { ProjectService } from "../projects/index.js";
 import type { ApprovalService } from "../approvals/index.js";
 import { gitStatus } from "../tools/git.js";
-import { loadProjectFileConfig } from "../config/index.js";
+import { loadGlobalConfig, loadProjectFileConfig, resolveHeartbeatConfig } from "../config/index.js";
 import { getPanicState } from "../panic/index.js";
+import type { MemoryService } from "../memories/index.js";
 
 export type HeartbeatCheckResult = {
   observations: Omit<Observation, "id" | "createdAt">[];
@@ -30,9 +31,10 @@ export class HeartbeatService {
   constructor(
     private readonly projects: ProjectService,
     private readonly approvals: ApprovalService,
+    private readonly memories?: MemoryService,
   ) {}
 
-  start(intervalMinutes: number = 30): void {
+  start(intervalMinutes: number = loadGlobalConfig().heartbeat?.intervalMinutes ?? 30): void {
     if (this.intervalHandle) return;
     this.intervalHandle = setInterval(
       () => void this.run(),
@@ -181,6 +183,8 @@ export class HeartbeatService {
   async generateDailyRecap(projectId: string): Promise<string> {
     const project = await this.projects.getProject(projectId);
     const obs = await this.getObservations(projectId);
+    const heartbeatConfig = resolveHeartbeatConfig(loadProjectFileConfig(project.rootPath));
+    const promptMemories = await this.memories?.getPromptMemories(projectId);
 
     const gitResult = await gitStatus({ projectRoot: project.rootPath });
 
@@ -192,6 +196,18 @@ export class HeartbeatService {
 
     if (gitResult.ok && typeof gitResult.output === "string") {
       lines.push("## Git Status", "```", gitResult.output, "```", "");
+    }
+
+    if (heartbeatConfig.instructions.length > 0) {
+      lines.push("## Heartbeat Instructions", ...heartbeatConfig.instructions.map((instruction) => `- ${instruction}`), "");
+    }
+
+    if (promptMemories && (promptMemories.global.length > 0 || promptMemories.project.length > 0)) {
+      lines.push("## Memory Context");
+      for (const memory of [...promptMemories.global, ...promptMemories.project]) {
+        lines.push(`- [${memory.kind}] ${memory.content}`);
+      }
+      lines.push("");
     }
 
     if (obs.length > 0) {
@@ -216,11 +232,12 @@ export class HeartbeatService {
     config: ReturnType<typeof loadProjectFileConfig>,
     manual: boolean,
   ): boolean {
+    const heartbeatConfig = resolveHeartbeatConfig(config);
     if (!project.heartbeatEnabled) return false;
-    if (config?.heartbeat?.enabled === false) return false;
-    if (config?.heartbeat?.mode === "off") return false;
-    if (!manual && config?.heartbeat?.mode === "manual") return false;
-    if (!manual && config?.heartbeat?.quiet_hours && isWithinQuietHours(config.heartbeat.quiet_hours.start, config.heartbeat.quiet_hours.end)) {
+    if (heartbeatConfig.enabled === false) return false;
+    if (heartbeatConfig.mode === "off") return false;
+    if (!manual && heartbeatConfig.mode === "manual") return false;
+    if (!manual && heartbeatConfig.quietHours && isWithinQuietHours(heartbeatConfig.quietHours.start, heartbeatConfig.quietHours.end)) {
       return false;
     }
     return true;
@@ -231,9 +248,10 @@ export class HeartbeatService {
     config: ReturnType<typeof loadProjectFileConfig>,
   ): Promise<HeartbeatObservation[]> {
     const collected: HeartbeatObservation[] = [];
-    const checks = (config?.heartbeat as { checks?: { git_dirty?: boolean; pending_approvals?: boolean } } | undefined)?.checks;
+    const heartbeatConfig = resolveHeartbeatConfig(config);
+    const includeSuggestions = heartbeatConfig.mode === "proactive";
 
-    if (checks?.git_dirty !== false) {
+    if (heartbeatConfig.checks.gitDirty.enabled && !(await this.isCheckOnCooldown(project.id, "git_dirty", heartbeatConfig.checks.gitDirty.cooldownMinutes))) {
       const gitResult = await gitStatus({ projectRoot: project.rootPath });
       if (gitResult.ok && typeof gitResult.output === "string" && gitResult.output.trim()) {
         const lines = gitResult.output.split("\n").filter((line) => !line.startsWith("##"));
@@ -244,21 +262,21 @@ export class HeartbeatService {
             severity: "suggestion",
             title: `${project.name} has uncommitted changes`,
             body: `${lines.length} file(s) changed:\n${lines.slice(0, 10).join("\n")}`,
-            suggestedActions: [
+            suggestedActions: includeSuggestions ? [
               {
                 id: nanoid(),
                 label: "Summarise changes",
                 prompt: `Summarise the uncommitted changes in ${project.name} and suggest the next step.`,
                 requiresApproval: false,
               },
-            ],
+            ] : [],
             dedupeKey: `${project.id}:git_dirty`,
           });
         }
       }
     }
 
-    if (checks?.pending_approvals !== false) {
+    if (heartbeatConfig.checks.pendingApprovals.enabled && !(await this.isCheckOnCooldown(project.id, "pending_approvals", heartbeatConfig.checks.pendingApprovals.cooldownMinutes))) {
       const pending = await this.approvals.getPendingApprovals(project.id);
       if (pending.length > 0) {
         collected.push({
@@ -267,7 +285,14 @@ export class HeartbeatService {
           severity: "warning",
           title: `${project.name} has ${pending.length} pending approval(s)`,
           body: pending.map((approval) => `• ${approval.title} (${approval.risk})`).join("\n"),
-          suggestedActions: [],
+          suggestedActions: includeSuggestions ? [
+            {
+              id: nanoid(),
+              label: "Review approvals",
+              prompt: `Review the pending approvals for ${project.name} and explain what needs a decision.`,
+              requiresApproval: false,
+            },
+          ] : [],
           dedupeKey: `${project.id}:pending_approvals`,
         });
       }
@@ -298,6 +323,16 @@ export class HeartbeatService {
     const db = getDb();
     const cutoff = new Date(Date.now() - OBSERVATION_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     await db.delete(observations).where(lt(observations.createdAt, cutoff));
+  }
+
+  private async isCheckOnCooldown(projectId: string, checkId: string, cooldownMinutes: number): Promise<boolean> {
+    if (cooldownMinutes <= 0) {
+      return false;
+    }
+    const db = getDb();
+    const cutoff = new Date(Date.now() - cooldownMinutes * 60 * 1000).toISOString();
+    const rows = await db.select().from(observations).where(and(eq(observations.dedupeKey, `${projectId}:${checkId}`), gte(observations.lastSeenAt, cutoff)));
+    return rows.length > 0;
   }
 }
 

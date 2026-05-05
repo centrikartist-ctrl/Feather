@@ -8,6 +8,7 @@ export const FEATHER_PROJECT_CONFIG_FILE = "project.yml";
 export const FEATHER_INSTRUCTIONS_FILE = "instructions.md";
 export const FEATHER_HEARTBEAT_CONFIG_FILE = "heartbeat.yml";
 export const FEATHER_BUDGET_CONFIG_FILE = "budget.yml";
+export const FEATHER_SKILLS_DIR = "skills";
 
 export const DEFAULT_HEARTBEAT_INTERVAL_MINUTES = 30;
 export const DEFAULT_HEARTBEAT_QUIET_START = "22:30";
