@@ -77,30 +77,78 @@ It does not yet provide full staged updates, real rollback, runtime manifest pro
 
 ---
 
-## Quick Start
+## Trying Feather Locally
 
 Requirements: Node.js 20+, pnpm 9+
 
 ```sh
 pnpm install
-pnpm build
+pnpm run setup
 pnpm dev
 ```
 
+`pnpm run setup` bootstraps `~/.feather/`, writes `config.yml` if missing, creates `agent.md` if missing, and initializes the local DB. It does not require an API key or Telegram.
+
 `pnpm dev` starts the daemon and dashboard development server. The dashboard runs at `http://localhost:5173` during development.
 
-If you want the packaged CLI flow instead, build first and then run `feather daemon start`.
+Recommended first-run loop:
 
-## Local Setup Flow
-
-1. Run `pnpm dev`.
-2. Open the dashboard and finish onboarding.
-3. Configure at least one provider.
+1. Run `pnpm run setup`.
+2. Run `pnpm dev`.
+3. Open the dashboard and add a provider.
 4. Add a project root Feather is allowed to work in.
-5. Optionally configure Telegram for approvals and panic control.
-6. Start tasks from the dashboard or CLI.
+5. Create a small task.
+6. Review approvals before risky writes or commands.
+7. Use panic if anything feels wrong.
+
+Useful local commands:
+
+- `pnpm --filter @feather/cli exec tsx src/main.ts commands`
+- `pnpm --filter @feather/cli exec tsx src/main.ts doctor`
+- `pnpm --filter @feather/cli exec tsx src/main.ts projects`
+- `pnpm --filter @feather/cli exec tsx src/main.ts task <project> <prompt>`
 
 Project-specific guidance lives in `.feather/instructions.md`, and repository-local `AGENTS.md` is loaded when present.
+
+## Developing Feather
+
+```sh
+pnpm install
+pnpm dev
+```
+
+Common validation commands:
+
+- `pnpm run check:repo-safety`
+- `pnpm typecheck`
+- `pnpm build`
+- `pnpm test`
+
+## Running Guard
+
+Feather Guard is still a manual supervisor flow in `v0.1.0-alpha`.
+
+Use the repo-local supervisor commands:
+
+```sh
+pnpm --filter @feather/supervisor exec tsx src/main.ts status
+pnpm --filter @feather/supervisor exec tsx src/main.ts snapshot create "manual"
+pnpm --filter @feather/supervisor exec tsx src/main.ts run
+```
+
+Guard currently covers health polling, local locks, sanitized snapshots, unreachable-gateway detection, and a restart foundation that stays disabled by default. It does not yet implement full staged updates, real rollback, runtime manifests, encrypted snapshots, service installation, or signed releases.
+
+## Telegram Command Discovery
+
+Telegram is optional for alpha.
+
+Once configured, start with:
+
+- `/help` for the flat command reference
+- `/actions` or `/menu` for grouped operator actions
+- `/examples` for copyable slash and freeform examples
+
+Read-only discovery commands stay available during panic. Mutating commands like `/task`, `/approve`, and `/use-skill` do not.
 
 ## Providers And Pricing
 
@@ -165,7 +213,7 @@ Use onboarding if you want the simplest path. Feather also supports environment-
 2. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS` locally.
 3. Restart the daemon if you added credentials after it was already running.
 
-Useful commands include `/status`, `/projects`, `/task <project> <prompt>`, `/approvals`, `/approve <id>`, `/reject <id>`, `/panic`, `/resume confirm`, `/budget`, and `/cancel <taskId>`.
+Useful commands include `/status`, `/projects`, `/task <project> <prompt>`, `/approvals`, `/approve <id>`, `/reject <id>`, `/panic`, `/resume confirm`, `/budget`, `/cancel <taskId>`, `/actions`, `/menu`, `/examples`, and `/help`.
 
 The current build also supports deterministic freeform Telegram messages for status, approvals, panic/cancel, and task proposals. Action-style plain messages create a confirmation instead of starting work immediately.
 
@@ -243,6 +291,10 @@ Telegram is optional and uses the same daemon safety gates.
 - [Tool system](docs/tool-system.md)
 - [Heartbeat](docs/heartbeat.md)
 - [Feather Guard](docs/feather-guard.md)
+- [Guard runtime manifest design](docs/guard-runtime-manifest.md)
+- [Guard update and rollback plan](docs/guard-update-rollback-plan.md)
+- [Supervisor service story](docs/supervisor-service.md)
+- [Snapshot security](docs/snapshot-security.md)
 - [Telegram freeform](docs/telegram-freeform.md)
 - [Memory](docs/memory.md)
 - [Skills](docs/skills.md)

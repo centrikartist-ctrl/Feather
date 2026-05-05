@@ -42,6 +42,8 @@
 
 ## Manual alpha smoke
 
+- [ ] `pnpm run setup` succeeds without requiring API keys or Telegram
+- [ ] `feather doctor` reports clear warnings when providers or projects are missing
 - [ ] Start daemon
 - [ ] Open dashboard
 - [ ] Configure provider
@@ -102,6 +104,9 @@
 
 - [ ] `/status` works
 - [ ] `/projects` works
+- [ ] `/help` works
+- [ ] `/actions` or `/menu` works
+- [ ] `/examples` works
 - [ ] plain `status` works
 - [ ] plain task request creates a confirmation instead of a task
 - [ ] `approve task` starts the proposed task
@@ -112,6 +117,9 @@
 - [ ] /panic activates panic
 - [ ] /task is blocked during panic
 - [ ] /approve is blocked during panic
+- [ ] /help is allowed during panic
+- [ ] /actions or /menu are allowed during panic
+- [ ] /examples is allowed during panic
 - [ ] /reject is allowed during panic
 - [ ] /resume confirm resumes
 - [ ] /cancel cancels task
@@ -174,6 +182,27 @@
 
 - [ ] README matches actual behaviour
 - [ ] Known limitations are honest
+- [ ] README separates local use, development, Guard, and Telegram discovery
 - [ ] Telegram freeform doc matches actual deterministic routing
 - [ ] Memory doc matches explicit-only behavior
 - [ ] Skills doc states that skills do not grant permissions
+
+## v0.1.0-alpha tag checklist
+
+- [ ] `pnpm install` succeeds
+- [ ] `pnpm run check:repo-safety` passes
+- [ ] `pnpm typecheck` passes
+- [ ] `pnpm build` passes
+- [ ] `pnpm test` passes
+- [ ] `pnpm run smoke:live:gpt-4o-mini` passes if API key is present
+- [ ] README says public alpha, not production
+- [ ] README package table includes supervisor
+- [ ] Guard limitations are explicit
+- [ ] Snapshot redaction/exclusion tests pass
+- [ ] `/health` manual check passes
+- [ ] `/diagnostics/noop` manual check passes
+- [ ] supervisor status manual check passes
+- [ ] supervisor snapshot create manual check passes
+- [ ] no `.env*`, credentials, DBs, logs, snapshots, or temp projects staged
+- [ ] `git status --short --ignored` reviewed
+- [ ] tag only after user approval

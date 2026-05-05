@@ -47,15 +47,11 @@ function isForbiddenPath(filePath) {
     return true;
   }
 
-  if (/\.(pem|key|p12|pfx)$/.test(normalized)) {
+  if (/\.(pem|key|p12|pfx|crt|cer|der)$/.test(normalized)) {
     return true;
   }
 
-  if (/(^|\/)feather[-_].*(pass|plan|spec).*\.md$/.test(normalized)) {
-    return true;
-  }
-
-  if (normalized === "feather_product_spec_updated.docx") {
+  if (/(^|\/)feather[-_].*(pass|plan|spec).*\.(md|docx)$/.test(normalized)) {
     return true;
   }
 
@@ -63,7 +59,7 @@ function isForbiddenPath(filePath) {
     return true;
   }
 
-  if (/\.(log|db|db-shm|db-wal)$/.test(normalized)) {
+  if (/\.(log|db|db-shm|db-wal|sqlite|sqlite3|sqlite-shm|sqlite-wal)$/.test(normalized)) {
     return true;
   }
 

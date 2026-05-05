@@ -58,6 +58,16 @@ describe("project config loading", () => {
     expect(config.telegram?.freeform?.confirmations?.createTask).toBe(true);
   });
 
+  it("derives the default db path from the current Feather home env", () => {
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "feather-home-test-"));
+    tempDirs.push(fakeHome);
+    vi.stubEnv("FEATHER_HOME_DIR", fakeHome);
+
+    const config = loadGlobalConfig();
+
+    expect(config.dbPath).toBe(path.join(fakeHome, "feather.db"));
+  });
+
   it("builds a shared system prompt from global, project, repo, and runtime layers", () => {
     const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "feather-home-test-"));
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "feather-project-test-"));

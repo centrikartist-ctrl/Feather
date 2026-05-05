@@ -14,6 +14,15 @@
 - more complete Telegram operational workflows
 - experimental local tool manifests
 
+Current design docs for the next Guard pass:
+
+- [Guard runtime manifest design](guard-runtime-manifest.md)
+- [Guard update and rollback plan](guard-update-rollback-plan.md)
+- [Supervisor service story](supervisor-service.md)
+- [Snapshot security](snapshot-security.md)
+
+These are roadmap and design documents only. `v0.1.0-alpha` does not claim staged updates, real rollback, service installation, or encrypted snapshots.
+
 ## Explicitly deferred
 
 - desktop app packaging

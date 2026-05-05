@@ -6,12 +6,16 @@ dist/
 .env.local
 .env.*
 !.env.example
+.envrc
 credentials.*
 secrets.*
 *.pem
 *.key
 *.p12
 *.pfx
+*.crt
+*.cer
+*.der
 
 logs/
 snapshots/
@@ -20,7 +24,21 @@ tmp/
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
 *.tsbuildinfo
+coverage/
 
 feather-live-smoke-*/
 feather-smoke-*/
+FEATHER_*PASS*.md
+FEATHER_*PLAN*.md
+FEATHER_*SPEC*.md
+FEATHER_*SPEC*.docx
+Feather_*Spec*.docx
+feather-*pass*.md
+feather-*plan*.md
+feather-*spec*.md
+feather-*spec*.docx

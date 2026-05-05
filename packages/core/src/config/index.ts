@@ -59,35 +59,37 @@ export type GlobalConfig = {
 
 const FEATHER_HOME_ENV = "FEATHER_HOME_DIR";
 
-const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
-  dbPath: path.join(getFeatherHomeDir(), "feather.db"),
-  daemonPort: 47383,
-  logLevel: "info",
-  telegram: {
-    freeform: {
-      enabled: true,
-      confirmations: {
-        readOnly: false,
-        createTask: true,
+function getDefaultGlobalConfig(): GlobalConfig {
+  return {
+    dbPath: path.join(getFeatherHomeDir(), "feather.db"),
+    daemonPort: 47383,
+    logLevel: "info",
+    telegram: {
+      freeform: {
+        enabled: true,
+        confirmations: {
+          readOnly: false,
+          createTask: true,
+        },
       },
     },
-  },
-  providers: {
-    allowSingleProviderAutoRoute: false,
-  },
-  heartbeat: {
-    enabled: true,
-    mode: "passive",
-    intervalMinutes: 30,
-    quietHours: { start: "22:30", end: "08:00" },
-    checks: {
-      git_dirty: { enabled: true, cooldownMinutes: 120 },
-      pending_approvals: { enabled: true, cooldownMinutes: 30 },
-      daily_recap: { enabled: true, time: "21:30" },
+    providers: {
+      allowSingleProviderAutoRoute: false,
     },
-    instructions: [],
-  },
-};
+    heartbeat: {
+      enabled: true,
+      mode: "passive",
+      intervalMinutes: 30,
+      quietHours: { start: "22:30", end: "08:00" },
+      checks: {
+        git_dirty: { enabled: true, cooldownMinutes: 120 },
+        pending_approvals: { enabled: true, cooldownMinutes: 30 },
+        daily_recap: { enabled: true, time: "21:30" },
+      },
+      instructions: [],
+    },
+  };
+}
 
 export type ResolvedHeartbeatConfig = {
   enabled: boolean;
@@ -128,59 +130,60 @@ export function getGlobalAgentFilePath(): string {
 }
 
 export function loadGlobalConfig(): GlobalConfig {
+  const defaultConfig = getDefaultGlobalConfig();
   const configPath = getGlobalConfigPath();
   if (!fs.existsSync(configPath)) {
-    return { ...DEFAULT_GLOBAL_CONFIG };
+    return { ...defaultConfig };
   }
   const raw = fs.readFileSync(configPath, "utf8");
   const parsed = yaml.load(raw) as Partial<GlobalConfig>;
   return {
-    ...DEFAULT_GLOBAL_CONFIG,
+    ...defaultConfig,
     ...parsed,
     telegram: {
-      ...(DEFAULT_GLOBAL_CONFIG.telegram ?? {}),
+      ...(defaultConfig.telegram ?? {}),
       ...(parsed.telegram ?? {}),
       freeform: {
-        ...(DEFAULT_GLOBAL_CONFIG.telegram?.freeform ?? {}),
+        ...(defaultConfig.telegram?.freeform ?? {}),
         ...(parsed.telegram?.freeform ?? {}),
         confirmations: {
-          ...(DEFAULT_GLOBAL_CONFIG.telegram?.freeform?.confirmations ?? {}),
+          ...(defaultConfig.telegram?.freeform?.confirmations ?? {}),
           ...(parsed.telegram?.freeform?.confirmations ?? {}),
         },
       },
     },
     providers: {
-      ...(DEFAULT_GLOBAL_CONFIG.providers ?? {}),
+      ...(defaultConfig.providers ?? {}),
       ...(parsed.providers ?? {}),
     },
     heartbeat: {
-      ...(DEFAULT_GLOBAL_CONFIG.heartbeat ?? {}),
+      ...(defaultConfig.heartbeat ?? {}),
       ...(parsed.heartbeat ?? {}),
-      ...(DEFAULT_GLOBAL_CONFIG.heartbeat?.quietHours || parsed.heartbeat?.quietHours
+      ...(defaultConfig.heartbeat?.quietHours || parsed.heartbeat?.quietHours
         ? {
             quietHours: {
-              ...(DEFAULT_GLOBAL_CONFIG.heartbeat?.quietHours ?? { start: "22:30", end: "08:00" }),
+              ...(defaultConfig.heartbeat?.quietHours ?? { start: "22:30", end: "08:00" }),
               ...(parsed.heartbeat?.quietHours ?? {}),
             },
           }
         : {}),
       checks: {
-        ...(DEFAULT_GLOBAL_CONFIG.heartbeat?.checks ?? {}),
+        ...(defaultConfig.heartbeat?.checks ?? {}),
         ...(parsed.heartbeat?.checks ?? {}),
         git_dirty: {
-          ...(DEFAULT_GLOBAL_CONFIG.heartbeat?.checks?.git_dirty ?? {}),
+          ...(defaultConfig.heartbeat?.checks?.git_dirty ?? {}),
           ...(parsed.heartbeat?.checks?.git_dirty ?? {}),
         },
         pending_approvals: {
-          ...(DEFAULT_GLOBAL_CONFIG.heartbeat?.checks?.pending_approvals ?? {}),
+          ...(defaultConfig.heartbeat?.checks?.pending_approvals ?? {}),
           ...(parsed.heartbeat?.checks?.pending_approvals ?? {}),
         },
         daily_recap: {
-          ...(DEFAULT_GLOBAL_CONFIG.heartbeat?.checks?.daily_recap ?? {}),
+          ...(defaultConfig.heartbeat?.checks?.daily_recap ?? {}),
           ...(parsed.heartbeat?.checks?.daily_recap ?? {}),
         },
       },
-      instructions: parsed.heartbeat?.instructions ?? DEFAULT_GLOBAL_CONFIG.heartbeat?.instructions ?? [],
+      instructions: parsed.heartbeat?.instructions ?? defaultConfig.heartbeat?.instructions ?? [],
     },
   };
 }

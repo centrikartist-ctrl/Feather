@@ -177,6 +177,9 @@ describe("TelegramConnector allowlist", () => {
     expect((connector as any).isAllowedDuringPanic("/task", ["proj", "do", "work"])).toBe(false);
     expect((connector as any).isAllowedDuringPanic("/approve", ["abc"])).toBe(false);
     expect((connector as any).isAllowedDuringPanic("/reject", ["abc"])).toBe(true);
+    expect((connector as any).isAllowedDuringPanic("/actions", [])).toBe(true);
+    expect((connector as any).isAllowedDuringPanic("/menu", [])).toBe(true);
+    expect((connector as any).isAllowedDuringPanic("/examples", [])).toBe(true);
     expect((connector as any).isAllowedDuringPanic("/heartbeat", ["proj", "off"])).toBe(true);
   });
 
@@ -196,6 +199,62 @@ describe("TelegramConnector allowlist", () => {
     await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/status" });
 
     expect(sentMessages.at(-1)?.text).toContain("Feather Status");
+  });
+
+  it("returns grouped action help for /actions and /menu", async () => {
+    const { services } = createServices();
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/actions" });
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/menu" });
+
+    expect(sentMessages.at(-2)?.text).toContain("Feather Actions");
+    expect(sentMessages.at(-2)?.text).toContain("*Read-only*");
+    expect(sentMessages.at(-2)?.text).toContain("run feather-supervisor status locally");
+    expect(sentMessages.at(-1)?.text).toContain("Feather Actions");
+  });
+
+  it("returns copyable examples for /examples", async () => {
+    const { services } = createServices();
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/examples" });
+
+    expect(sentMessages.at(-1)?.text).toContain("Feather Examples");
+    expect(sentMessages.at(-1)?.text).toContain("what's going on with Feather?");
+    expect(sentMessages.at(-1)?.text).toContain("/task Feather fix the README alpha wording");
+    expect(sentMessages.at(-1)?.text).toContain("approve task");
+  });
+
+  it("includes discovery commands in /help", async () => {
+    const { services } = createServices();
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/help" });
+
+    expect(sentMessages.at(-1)?.text).toContain("/actions — Grouped operator view");
+    expect(sentMessages.at(-1)?.text).toContain("/menu — Alias for /actions");
+    expect(sentMessages.at(-1)?.text).toContain("/examples — Copyable slash and freeform examples");
+  });
+
+  it("keeps help, actions, menu, and examples available during panic mode", async () => {
+    const { services } = createServices();
+    const { connector, sentMessages } = createConnector(services);
+
+    await activatePanic("test panic");
+    try {
+      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/help" });
+      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/actions" });
+      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/menu" });
+      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/examples" });
+    } finally {
+      await deactivatePanic();
+    }
+
+    expect(sentMessages.at(-4)?.text).toContain("Feather Commands");
+    expect(sentMessages.at(-3)?.text).toContain("Feather Actions");
+    expect(sentMessages.at(-2)?.text).toContain("Feather Actions");
+    expect(sentMessages.at(-1)?.text).toContain("Feather Examples");
   });
 
   it("respects the freeform enabled flag", async () => {

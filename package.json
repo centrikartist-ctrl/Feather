@@ -9,6 +9,7 @@
     "pnpm": ">=9"
   },
   "scripts": {
+    "setup": "pnpm --filter @feather/shared build && pnpm --filter @feather/core build && pnpm --filter @feather/cli exec tsx src/main.ts setup",
     "check:repo-safety": "node scripts/check-repo-safety.mjs",
     "smoke:live:gpt-4o-mini": "node scripts/live-smoke-gpt-4o-mini.mjs",
     "predev": "pnpm --filter @feather/shared build",

@@ -303,6 +303,41 @@ function HomePage() {
         )}
       </Card>
 
+      <Card>
+        <div className="flex items-start justify-between gap-6">
+          <div className="space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-300">How To Use Feather</h2>
+              <p className="mt-2 max-w-3xl text-sm text-slate-400">
+                Feather works best as a supervised loop: add a provider, register a project, create a small task,
+                review risky writes or commands before approving them, and use panic if anything feels wrong.
+              </p>
+            </div>
+            <ol className="grid gap-2 text-sm text-slate-300 md:grid-cols-2">
+              <li>1. Add a provider</li>
+              <li>2. Add a project</li>
+              <li>3. Create a small task</li>
+              <li>4. Review approvals before risky writes or commands</li>
+              <li>5. Use panic if anything feels wrong</li>
+              <li>6. Optional: connect Telegram</li>
+              <li>7. Optional: add memories</li>
+              <li>8. Optional: create or use skills</li>
+              <li>9. Optional: run Feather Guard supervisor</li>
+            </ol>
+          </div>
+          <div className="min-w-[260px] rounded-lg border border-slate-700 bg-slate-900/70 p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Useful commands</div>
+            <div className="mt-3 space-y-2 text-sm text-slate-300">
+              <div><code className="text-slate-100">pnpm run setup</code></div>
+              <div><code className="text-slate-100">pnpm --filter @feather/cli exec tsx src/main.ts commands</code></div>
+              <div><code className="text-slate-100">pnpm --filter @feather/cli exec tsx src/main.ts doctor</code></div>
+              <div><code className="text-slate-100">pnpm --filter @feather/supervisor exec tsx src/main.ts status</code></div>
+              <div><code className="text-slate-100">/help</code>, <code className="text-slate-100">/actions</code>, <code className="text-slate-100">/examples</code></div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
       {obsData && obsData.observations.length > 0 && (
         <Card>
           <h2 className="text-sm font-semibold text-slate-300 mb-3">Recent Observations</h2>

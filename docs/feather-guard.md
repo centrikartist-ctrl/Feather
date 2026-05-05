@@ -59,12 +59,12 @@ The separate app lives at:
 apps/supervisor
 ```
 
-Commands after build:
+Repo-local supervisor commands:
 
 ```sh
-feather-supervisor run
-feather-supervisor status
-feather-supervisor snapshot create "reason"
+pnpm --filter @feather/supervisor exec tsx src/main.ts run
+pnpm --filter @feather/supervisor exec tsx src/main.ts status
+pnpm --filter @feather/supervisor exec tsx src/main.ts snapshot create "reason"
 ```
 
 The supervisor polls the gateway, optionally runs noop diagnostics, classifies health, detects unreachable gateway, attempts a configured restart after repeated unreachable checks, and enters safe mode after repeated hard failures.
@@ -111,3 +111,12 @@ This is an MVP, not production rollback safety.
 - No OS-level separate user or ACL hardening.
 - No Telegram live testing in the supervisor.
 - Gateway `/resume` still exists for current product continuity; full external-only panic unlock should be tightened in a later pass.
+
+## Next-Stage Design Docs
+
+These are planning docs for the next Guard hardening areas. They describe intended shape and constraints, not implemented alpha features.
+
+- [Guard runtime manifest design](guard-runtime-manifest.md)
+- [Guard update and rollback plan](guard-update-rollback-plan.md)
+- [Supervisor service story](supervisor-service.md)
+- [Snapshot security](snapshot-security.md)

@@ -18,6 +18,9 @@
  *   /panic           - Activate panic mode (cancels all tasks)
  *   /resume confirm  - Deactivate panic mode
  *   /cancel <taskId> - Cancel a specific task
+ *   /actions         - Grouped operator command reference
+ *   /menu            - Alias for /actions
+ *   /examples        - Copyable slash + freeform examples
  *   /help            - Command reference
  */
 
@@ -309,6 +312,9 @@ export class TelegramConnector {
           case "/heartbeat":await this.cmdHeartbeat(chatId, args); break;
           case "/budget":   await this.cmdBudget(chatId); break;
           case "/help":     await this.cmdHelp(chatId); break;
+          case "/actions":  await this.cmdActions(chatId); break;
+          case "/menu":     await this.cmdActions(chatId); break;
+          case "/examples": await this.cmdExamples(chatId); break;
           case "/panic":    await this.cmdPanic(chatId); break;
           case "/resume":   await this.cmdResume(chatId, args); break;
           case "/cancel":   await this.cmdCancelTask(chatId, args[0]); break;
@@ -554,12 +560,85 @@ export class TelegramConnector {
       "/forget-memory <id> — Delete a memory",
       "/skills [project] — List local skills",
       "/use-skill <project> <skill> <task prompt> — Create a task with a skill",
+      "/actions — Grouped operator view",
+      "/menu — Alias for /actions",
+      "/examples — Copyable slash and freeform examples",
       "/help — This message",
       "",
       "*Safety commands*",
       "/panic — Activate panic mode (cancels all tasks)",
       "/resume confirm — Deactivate panic mode",
       "/cancel <taskId> — Cancel a specific task",
+    ];
+    await this.transport.sendMessage(chatId, lines.join("\n"));
+  }
+
+  private async cmdActions(chatId: number): Promise<void> {
+    const lines = [
+      "*Feather Actions*",
+      "",
+      "*Read-only*",
+      "- status",
+      "- projects",
+      "- approvals",
+      "- budget",
+      "- recap <project>",
+      "- memories",
+      "- skills",
+      "",
+      "*Work*",
+      "- task <project> <prompt>",
+      "- use-skill <project> <skill> <prompt>",
+      "",
+      "*Control*",
+      "- panic",
+      "- resume confirm",
+      "- cancel <taskId>",
+      "",
+      "*Memory*",
+      "- save-memory global <text>",
+      "- save-memory project <project> <text>",
+      "- forget-memory <id>",
+      "",
+      "*Guard*",
+      "- check /health in dashboard or API",
+      "- run feather-supervisor status locally",
+    ];
+    await this.transport.sendMessage(chatId, lines.join("\n"));
+  }
+
+  private async cmdExamples(chatId: number): Promise<void> {
+    const lines = [
+      "*Feather Examples*",
+      "",
+      "*Read-only*",
+      "status",
+      "what's going on with Feather?",
+      "show projects",
+      "any pending approvals?",
+      "summarise today for Feather",
+      "",
+      "*Create work safely*",
+      "fix the README alpha wording",
+      "/task Feather fix the README alpha wording",
+      "",
+      "*Approvals*",
+      "approve <id>",
+      "reject <id>",
+      "approve task",
+      "",
+      "*Panic*",
+      "panic",
+      "/panic",
+      "/resume confirm",
+      "",
+      "*Memory*",
+      "save-memory global Keep summaries short and direct",
+      "/save-memory project Feather constraint Always run tests before marking done",
+      "",
+      "*Skills*",
+      "skills",
+      "/use-skill Feather safe-ui-pass clean the dashboard cards",
     ];
     await this.transport.sendMessage(chatId, lines.join("\n"));
   }
@@ -1011,6 +1090,9 @@ export class TelegramConnector {
       case "/memories":
       case "/skills":
       case "/help":
+      case "/actions":
+      case "/menu":
+      case "/examples":
       case "/recap":
       case "/reject":
       case "/panic":

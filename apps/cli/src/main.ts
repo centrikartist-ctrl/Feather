@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { FEATHER_BASE_URL } from "@feather/shared";
+import { formatDoctorReport, renderCommandsGuide, runDoctor, runSetupBootstrap } from "./lib.js";
 
 const API = FEATHER_BASE_URL;
 
@@ -23,6 +24,13 @@ program
   .name("feather")
   .description("Feather — lightweight local harness for Codex/API agent workflows")
   .version("0.1.0-alpha");
+
+program
+  .command("commands")
+  .description("Show a grouped reference of working Feather CLI commands")
+  .action(() => {
+    console.log(renderCommandsGuide());
+  });
 
 // ── daemon ──────────────────────────────────────────────────────────────────
 const daemon = program.command("daemon");
@@ -88,13 +96,33 @@ program
 
 program
   .command("setup")
-  .description("Open the guided Feather onboarding flow")
+  .description("Bootstrap Feather home, config, agent profile, and database")
   .action(async () => {
-    const { loadGlobalConfig, saveGlobalConfig } = await import("@feather/core");
-    const { exec } = await import("node:child_process");
-    saveGlobalConfig(loadGlobalConfig());
-    console.log(chalk.blue("Opening Feather onboarding in the dashboard..."));
-    exec(`start ${FEATHER_BASE_URL}`);
+    const result = await runSetupBootstrap();
+    console.log(chalk.green("✓ Feather bootstrap complete"));
+    console.log(chalk.gray(`  Home: ${result.featherHomeDir}`));
+    console.log(chalk.gray(`  Config: ${result.configPath}${result.createdConfig ? " (created)" : ""}`));
+    console.log(chalk.gray(`  Agent: ${result.agentPath}${result.createdAgent ? " (created)" : ""}`));
+    console.log(chalk.gray(`  DB: ${result.dbPath}${result.createdDb ? " (created)" : ""}`));
+    console.log();
+    console.log("Next steps:");
+    console.log(chalk.gray("  1. Start Feather with `pnpm dev` or `pnpm --filter @feather/cli exec tsx src/main.ts daemon start`."));
+    console.log(chalk.gray("  2. Open the dashboard and add a provider."));
+    console.log(chalk.gray("  3. Register a project in the dashboard or with `pnpm --filter @feather/cli exec tsx src/main.ts project add <path>`."));
+    console.log(chalk.gray("  4. Telegram is optional for alpha; configure it later if you want phone control."));
+    console.log(chalk.gray("  5. Guard is optional for alpha; run `pnpm --filter @feather/supervisor exec tsx src/main.ts status` when needed."));
+  });
+
+program
+  .command("doctor")
+  .description("Inspect local Feather setup, daemon health, and optional integrations")
+  .action(async () => {
+    const result = await runDoctor();
+    const output = formatDoctorReport(result);
+    console.log(result.exitCode === 0 ? chalk.green(output) : chalk.yellow(output));
+    if (result.exitCode !== 0) {
+      process.exitCode = result.exitCode;
+    }
   });
 
 // ── dashboard ────────────────────────────────────────────────────────────────
@@ -127,6 +155,20 @@ project
 
 project
   .command("list")
+  .description("List all projects")
+  .action(async () => {
+    const data = await apiFetch("/projects") as { projects: Array<{ id: string; name: string; rootPath: string; heartbeatEnabled: boolean }> };
+    if (data.projects.length === 0) {
+      console.log(chalk.gray("No projects registered. Run: feather project add <path>"));
+      return;
+    }
+    for (const p of data.projects) {
+      console.log(`${chalk.bold(p.name)} ${chalk.gray(p.rootPath)} ${p.heartbeatEnabled ? chalk.green("♥") : chalk.gray("♡")}`);
+    }
+  });
+
+program
+  .command("projects")
   .description("List all projects")
   .action(async () => {
     const data = await apiFetch("/projects") as { projects: Array<{ id: string; name: string; rootPath: string; heartbeatEnabled: boolean }> };

@@ -42,6 +42,10 @@ The operator must reply with `approve task` or `cancel`.
 
 ## Current command additions
 
+- `/help`
+- `/actions`
+- `/menu`
+- `/examples`
 - `/memories`
 - `/save-memory global <text>`
 - `/save-memory project <project> <text>`
@@ -49,12 +53,38 @@ The operator must reply with `approve task` or `cancel`.
 - `/skills`
 - `/use-skill <project> <skill> <task prompt>`
 
+## Panic behaviour
+
+Allowed during panic:
+
+- `/help`
+- `/actions`
+- `/menu`
+- `/examples`
+- `/status`
+- `/projects`
+- `/approvals`
+- `/budget`
+- `/recap <project>`
+- `/reject <id>`
+- `/cancel <taskId>`
+- `/resume confirm`
+
+Blocked during panic:
+
+- `/task <project> <prompt>`
+- `/approve <id>`
+- `/use-skill <project> <skill> <task prompt>`
+- plain task creation requests
+- `heartbeat on`
+
 ## Manual Telegram test steps
 
 1. Start Feather with Telegram configured.
-2. Send `status` and confirm a read-only summary comes back.
-3. Send a plain action request and confirm Feather asks for `approve task`.
-4. Reply `approve task` and confirm the task appears in the dashboard.
-5. Activate panic and confirm plain task approval is blocked while plain reject still works.
+2. Send `/help`, `/actions`, and `/examples` and confirm the command discovery output is readable.
+3. Send `status` and confirm a read-only summary comes back.
+4. Send a plain action request and confirm Feather asks for `approve task`.
+5. Reply `approve task` and confirm the task appears in the dashboard.
+6. Activate panic and confirm plain task approval is blocked while plain reject still works.
 
 Live Telegram testing is manual because bot credentials are user-owned local secrets. The automated suite uses mocked Telegram transport.
