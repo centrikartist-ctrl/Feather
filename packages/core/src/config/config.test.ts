@@ -56,6 +56,9 @@ describe("project config loading", () => {
     expect(config.telegram?.freeform?.enabled).toBe(true);
     expect(config.telegram?.freeform?.confirmations?.readOnly).toBe(false);
     expect(config.telegram?.freeform?.confirmations?.createTask).toBe(true);
+    expect(config.telegram?.chat?.enabled).toBe(true);
+    expect(config.telegram?.chat?.maxContextMessages).toBe(12);
+    expect(config.telegram?.chat?.maxOutputTokens).toBe(700);
   });
 
   it("derives the default db path from the current Feather home env", () => {

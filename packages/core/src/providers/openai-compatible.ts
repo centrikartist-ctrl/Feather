@@ -1,4 +1,4 @@
-import type { ProviderAdapter } from "./adapter.js";
+import type { ProviderAdapter, ProviderChatInput, ProviderChatResult } from "./adapter.js";
 import type {
   ProviderCapabilities,
   ProviderHealth,
@@ -42,6 +42,14 @@ type ParsedToolRequest = {
 type ToolParseResult = {
   toolRequest: ParsedToolRequest | null;
   error?: string;
+};
+
+type OpenAIChatCompletionResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
 };
 
 export function calculateEstimatedCents(
@@ -169,6 +177,53 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
     } catch (err) {
       return { ok: false, message: `Connection failed: ${String(err)}` };
     }
+  }
+
+  async startChat(input: ProviderChatInput): Promise<ProviderChatResult> {
+    const apiKey = this.getApiKey();
+    if (!apiKey) {
+      throw new Error(`API key not found. Set ${this.config.apiKeyEnv} or store it in ${getFeatherLocalSecretsPath()}`);
+    }
+
+    const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
+    if (input.systemPrompt?.trim()) {
+      messages.push({ role: "system", content: input.systemPrompt.trim() });
+    }
+
+    for (const message of input.messages) {
+      const content = message.content.trim();
+      if (!content) {
+        continue;
+      }
+      messages.push({ role: message.role, content });
+    }
+
+    const res = await fetch(`${this.config.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        ...(this.config.organizationId ? { "OpenAI-Organization": this.config.organizationId } : {}),
+      },
+      body: JSON.stringify({
+        model: this.config.model,
+        messages,
+        stream: false,
+        max_tokens: input.maxOutputTokens ?? 700,
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Provider returned ${res.status}: ${await res.text()}`);
+    }
+
+    const parsed = await res.json() as OpenAIChatCompletionResponse;
+    const text = extractChatText(parsed.choices?.[0]?.message?.content);
+    if (!text) {
+      throw new Error("Provider returned an empty chat response.");
+    }
+
+    return { text };
   }
 
   async *startTask(input: TaskInput): AsyncIterable<ProviderEvent> {
@@ -371,4 +426,19 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
     });
     this.type = "openrouter";
   }
+}
+
+function extractChatText(content: string | Array<{ type?: string; text?: string }> | undefined): string {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((entry) => (typeof entry.text === "string" ? entry.text : ""))
+      .join("\n")
+      .trim();
+  }
+
+  return "";
 }

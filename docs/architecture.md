@@ -42,6 +42,25 @@ Providers / Tools / Projects
 
 The supervisor is not a second agent. It does not chat, browse, call models, accept natural-language tasks, or work on user projects.
 
+## Telegram Conversation Flow
+
+```text
+Telegram message
+  -> slash command?
+    -> deterministic command path
+  -> local state question?
+    -> deterministic local reply
+  -> direct work request?
+    -> create pending task proposal
+    -> wait for approve task / edit: ... / cancel
+  -> otherwise
+    -> bounded planning chat
+     -> optional API-provider chat-only response
+     -> never tools, shell, file writes, or task execution
+```
+
+Telegram conversation state is in-memory only in `v0.1.0-alpha`. It is bounded, expires after inactivity, and is not written into Feather memory automatically.
+
 ## Package Layout
 
 ```text
@@ -82,6 +101,8 @@ Tool action requires approval
 ```
 
 Approvals cannot bypass panic. Rejection remains allowed during panic so risky work can be blocked.
+
+Telegram chat-originated work uses the same approval and routing model after the operator explicitly approves the proposal. Chat does not bypass TaskRunner gates.
 
 ## Guard Flow
 

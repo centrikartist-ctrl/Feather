@@ -104,12 +104,23 @@
 
 - [ ] `/status` works
 - [ ] `/projects` works
+- [ ] `/projects` still works with Windows paths
 - [ ] `/help` works
 - [ ] `/actions` or `/menu` works
 - [ ] `/examples` works
 - [ ] plain `status` works
+- [ ] plain `show projects` works
+- [ ] `hello` gets a conversational reply
+- [ ] `what can you do?` gets a conversational reply
+- [ ] no configured chat provider falls back to local Telegram reply
 - [ ] plain task request creates a confirmation instead of a task
+- [ ] plain task request with multiple projects asks which project to use
+- [ ] plain task request with one project creates a pending proposal
+- [ ] `do it` turns recent conversation into a pending proposal
 - [ ] `approve task` starts the proposed task
+- [ ] `cancel` clears the pending Telegram proposal
+- [ ] `edit: ...` updates the pending Telegram proposal
+- [ ] `/clear-chat` clears the in-memory Telegram session
 - [ ] `/memories` works
 - [ ] `/save-memory global <text>` works
 - [ ] `/skills` works
@@ -120,11 +131,14 @@
 - [ ] /help is allowed during panic
 - [ ] /actions or /menu are allowed during panic
 - [ ] /examples is allowed during panic
+- [ ] conversational planning still works during panic
+- [ ] `approve task` is blocked during panic
 - [ ] /reject is allowed during panic
 - [ ] /resume confirm resumes
 - [ ] /cancel cancels task
 - [ ] approval notification arrives compactly
 - [ ] no giant diff is sent to Telegram
+- [ ] no Telegram message silently disappears on formatting-sensitive content
 
 ## Budgets
 

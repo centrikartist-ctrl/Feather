@@ -1,16 +1,16 @@
 import path from "node:path";
 import os from "node:os";
-import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Approval, Observation, Project, Task } from "@feather/shared";
 import { closeDb, initDb } from "../db/index.js";
 import { _resetPanicForTesting, activatePanic, deactivatePanic } from "../panic/index.js";
-import { TelegramConnector, classifyTelegramFreeformIntent } from "./index.js";
+import { TelegramConnector, buildTelegramSendPayload, classifyTelegramFreeformIntent } from "./index.js";
 
-function createProject(id: string, name = id): Project {
+function createProject(id: string, name = id, rootPath = `C:\\Projects\\${id}`): Project {
   return {
     id,
     name,
-    rootPath: `C:/tmp/${id}`,
+    rootPath,
     heartbeatEnabled: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -30,12 +30,12 @@ function createApproval(id: string): Approval {
   };
 }
 
-function createTask(id: string, title = id): Task {
+function createTask(id: string, title = id, status: Task["status"] = "queued"): Task {
   return {
     id,
     title,
     prompt: title,
-    status: "queued",
+    status,
     providerId: "provider-1",
     createdBy: "telegram",
     createdAt: new Date().toISOString(),
@@ -55,17 +55,44 @@ function createObservation(title: string): Observation {
   };
 }
 
+function createProvider(id: string, overrides: Partial<Record<string, unknown>> = {}) {
+  const provider = {
+    id,
+    name: (overrides.name as string | undefined) ?? id,
+    type: (overrides.type as string | undefined) ?? "openai",
+    capabilities: {
+      streaming: true,
+      toolCalling: false,
+      coding: true,
+      reasoning: false,
+      costEstimate: false,
+      supportsProjectRoot: false,
+      costEnforcementMode: "unknown",
+    },
+    validateConfig: vi.fn(async () => ({ ok: true, message: "ok" })),
+    startTask: async function* () {
+      return;
+    },
+    cancelTask: vi.fn(async () => undefined),
+    ...(overrides.startChat ? { startChat: overrides.startChat } : {}),
+  };
+
+  return Object.assign(provider, overrides);
+}
+
 function createServices(options: {
   projects?: Project[];
   approvals?: Approval[];
   tasks?: Task[];
   observations?: Observation[];
+  providers?: Array<ReturnType<typeof createProvider>>;
 } = {}) {
   const state = {
     projects: options.projects ?? [createProject("feather", "Feather")],
     approvals: options.approvals ?? [],
     tasks: options.tasks ?? [],
     observations: options.observations ?? [createObservation("Docs are stale")],
+    providers: options.providers ?? [createProvider("provider-1")],
   };
 
   const services = {
@@ -103,7 +130,7 @@ function createServices(options: {
       getObservations: vi.fn(async () => state.observations),
     },
     providers: {
-      list: vi.fn(() => [{ id: "provider-1" }]),
+      list: vi.fn(() => state.providers),
     },
     memories: {
       list: vi.fn(async () => []),
@@ -116,20 +143,24 @@ function createServices(options: {
       delete: vi.fn(async () => undefined),
     },
     skills: {
-      list: vi.fn(async () => [{ id: "project:feather:safe-ui-pass", name: "Safe UI Pass", scope: "project", projectId: "feather", path: "C:/skills/safe-ui-pass.md", purpose: "", allowedTools: ["filesystem.readFile"], instructions: "Preserve routing." }]),
+      list: vi.fn(async () => [{ id: "project:feather:safe-ui-pass", name: "Safe UI Pass", scope: "project", projectId: "feather", path: "C:\\skills\\safe-ui-pass.md", purpose: "", allowedTools: ["filesystem.readFile"], instructions: "Preserve routing." }]),
     },
   };
 
   return { services, state };
 }
 
-function createConnector(overrides: ReturnType<typeof createServices>["services"]) {
+function createConnector(
+  overrides: ReturnType<typeof createServices>["services"],
+  configOverrides: Partial<ConstructorParameters<typeof TelegramConnector>[0]> = {},
+) {
   const sentMessages: Array<{ chatId: number; text: string }> = [];
   const connector = new TelegramConnector(
     {
       botToken: "test-token",
       allowedUserIds: [123, 456],
       allowSingleProviderAutoRoute: true,
+      ...configOverrides,
     },
     overrides as never,
     {
@@ -143,7 +174,7 @@ function createConnector(overrides: ReturnType<typeof createServices>["services"
   return { connector, sentMessages };
 }
 
-describe("TelegramConnector allowlist", () => {
+describe("TelegramConnector", () => {
   beforeEach(() => {
     initDb(path.join(os.tmpdir(), `feather-telegram-${Date.now()}-${Math.random()}.db`));
     _resetPanicForTesting();
@@ -156,10 +187,7 @@ describe("TelegramConnector allowlist", () => {
 
   it("accepts configured Telegram user IDs and rejects unknown users", () => {
     const { services } = createServices();
-    const connector = new TelegramConnector(
-      { botToken: "test-token", allowedUserIds: [123, 456] },
-      services as never,
-    );
+    const connector = new TelegramConnector({ botToken: "test-token", allowedUserIds: [123, 456] }, services as never);
 
     expect(connector.isAllowedUser(123)).toBe(true);
     expect(connector.isAllowedUser(999)).toBe(false);
@@ -168,142 +196,164 @@ describe("TelegramConnector allowlist", () => {
 
   it("allows only safe commands during panic mode", () => {
     const { services } = createServices();
-    const connector = new TelegramConnector(
-      { botToken: "test-token", allowedUserIds: [123, 456] },
-      services as never,
-    );
+    const connector = new TelegramConnector({ botToken: "test-token", allowedUserIds: [123, 456] }, services as never);
 
-    expect((connector as any).isAllowedDuringPanic("/status", [])).toBe(true);
-    expect((connector as any).isAllowedDuringPanic("/task", ["proj", "do", "work"])).toBe(false);
-    expect((connector as any).isAllowedDuringPanic("/approve", ["abc"])).toBe(false);
-    expect((connector as any).isAllowedDuringPanic("/reject", ["abc"])).toBe(true);
-    expect((connector as any).isAllowedDuringPanic("/actions", [])).toBe(true);
-    expect((connector as any).isAllowedDuringPanic("/menu", [])).toBe(true);
-    expect((connector as any).isAllowedDuringPanic("/examples", [])).toBe(true);
-    expect((connector as any).isAllowedDuringPanic("/heartbeat", ["proj", "off"])).toBe(true);
+    expect((connector as never as { isAllowedDuringPanic: (cmd: string, args: string[]) => boolean }).isAllowedDuringPanic("/status", [])).toBe(true);
+    expect((connector as never as { isAllowedDuringPanic: (cmd: string, args: string[]) => boolean }).isAllowedDuringPanic("/task", ["proj", "do", "work"])).toBe(false);
+    expect((connector as never as { isAllowedDuringPanic: (cmd: string, args: string[]) => boolean }).isAllowedDuringPanic("/approve", ["abc"])).toBe(false);
+    expect((connector as never as { isAllowedDuringPanic: (cmd: string, args: string[]) => boolean }).isAllowedDuringPanic("/reject", ["abc"])).toBe(true);
+    expect((connector as never as { isAllowedDuringPanic: (cmd: string, args: string[]) => boolean }).isAllowedDuringPanic("/clear-chat", [])).toBe(true);
   });
 
-  it("classifies plain status as a read-only question", () => {
-    const intent = classifyTelegramFreeformIntent("status", {
-      projects: [createProject("feather", "Feather")],
-      pendingApprovals: [],
+  it("builds plain text Telegram payloads without markdown parse mode", () => {
+    expect(buildTelegramSendPayload(123, "hello")).toEqual({ chat_id: 123, text: "hello" });
+    expect(buildTelegramSendPayload(123, "hello")).not.toHaveProperty("parse_mode");
+  });
+
+  it("classifies show projects as read-only and hello as conversation", () => {
+    expect(classifyTelegramFreeformIntent("show projects", { projects: [createProject("feather", "Feather")], pendingApprovals: [] })).toEqual({
+      type: "read_only_question",
+      question: "show projects",
+      projectId: undefined,
+      topic: "projects",
     });
 
-    expect(intent).toEqual({ type: "read_only_question", question: "status", projectId: undefined });
+    expect(classifyTelegramFreeformIntent("hello", { projects: [createProject("feather", "Feather")], pendingApprovals: [] })).toEqual({
+      type: "conversation",
+      message: "hello",
+    });
   });
 
-  it("keeps slash commands working through the existing command path", async () => {
-    const { services } = createServices();
-    const { connector, sentMessages } = createConnector(services);
-
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/status" });
-
-    expect(sentMessages.at(-1)?.text).toContain("Feather Status");
-  });
-
-  it("returns grouped action help for /actions and /menu", async () => {
-    const { services } = createServices();
-    const { connector, sentMessages } = createConnector(services);
-
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/actions" });
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/menu" });
-
-    expect(sentMessages.at(-2)?.text).toContain("Feather Actions");
-    expect(sentMessages.at(-2)?.text).toContain("*Read-only*");
-    expect(sentMessages.at(-2)?.text).toContain("run feather-supervisor status locally");
-    expect(sentMessages.at(-1)?.text).toContain("Feather Actions");
-  });
-
-  it("returns copyable examples for /examples", async () => {
-    const { services } = createServices();
-    const { connector, sentMessages } = createConnector(services);
-
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/examples" });
-
-    expect(sentMessages.at(-1)?.text).toContain("Feather Examples");
-    expect(sentMessages.at(-1)?.text).toContain("what's going on with Feather?");
-    expect(sentMessages.at(-1)?.text).toContain("/task Feather fix the README alpha wording");
-    expect(sentMessages.at(-1)?.text).toContain("approve task");
-  });
-
-  it("includes discovery commands in /help", async () => {
+  it("keeps slash command discovery working", async () => {
     const { services } = createServices();
     const { connector, sentMessages } = createConnector(services);
 
     await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/help" });
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/actions" });
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/examples" });
 
-    expect(sentMessages.at(-1)?.text).toContain("/actions — Grouped operator view");
-    expect(sentMessages.at(-1)?.text).toContain("/menu — Alias for /actions");
-    expect(sentMessages.at(-1)?.text).toContain("/examples — Copyable slash and freeform examples");
+    expect(sentMessages[0]?.text).toContain("/clear-chat");
+    expect(sentMessages[1]?.text).toContain("plain conversation -> task proposal -> approve task");
+    expect(sentMessages[2]?.text).toContain("help me plan a docs polish pass");
   });
 
-  it("keeps help, actions, menu, and examples available during panic mode", async () => {
-    const { services } = createServices();
-    const { connector, sentMessages } = createConnector(services);
-
-    await activatePanic("test panic");
-    try {
-      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/help" });
-      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/actions" });
-      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/menu" });
-      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/examples" });
-    } finally {
-      await deactivatePanic();
-    }
-
-    expect(sentMessages.at(-4)?.text).toContain("Feather Commands");
-    expect(sentMessages.at(-3)?.text).toContain("Feather Actions");
-    expect(sentMessages.at(-2)?.text).toContain("Feather Actions");
-    expect(sentMessages.at(-1)?.text).toContain("Feather Examples");
-  });
-
-  it("respects the freeform enabled flag", async () => {
-    const { services } = createServices();
-    const sentMessages: Array<{ chatId: number; text: string }> = [];
-    const connector = new TelegramConnector(
-      {
-        botToken: "test-token",
-        allowedUserIds: [123, 456],
-        allowSingleProviderAutoRoute: true,
-        freeform: { enabled: false },
-      },
-      services as never,
-      {
-        sendMessage: async (chatId, text) => {
-          sentMessages.push({ chatId, text });
-        },
-        getUpdates: async () => [],
-      },
-    );
-
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "status" });
-
-    expect(sentMessages.at(-1)?.text).toContain("Plain Telegram messages are disabled");
-  });
-
-  it("returns a freeform status summary for plain status", async () => {
+  it("returns status for plain status requests", async () => {
     const { services } = createServices({ tasks: [createTask("task-1", "Fix docs")], approvals: [createApproval("approval-1")] });
     const { connector, sentMessages } = createConnector(services);
 
     await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "what's going on with Feather?" });
 
-    expect(sentMessages.at(-1)?.text).toContain("Project: Feather");
     expect(sentMessages.at(-1)?.text).toContain("Pending approvals: 1");
+    expect(sentMessages.at(-1)?.text).toContain("Project: Feather");
   });
 
-  it("creates a pending confirmation for plain task requests instead of creating a task immediately", async () => {
+  it("always replies to /projects with Windows paths safely", async () => {
+    const { services } = createServices({
+      projects: [createProject("feather", "Feather", "C:\\Users\\ciara\\OneDrive\\Desktop\\Projects\\Feather")],
+    });
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/projects" });
+
+    expect(sentMessages.at(-1)?.text).toContain("C:\\Users\\ciara\\OneDrive\\Desktop\\Projects\\Feather");
+  });
+
+  it("answers show projects through the local state layer", async () => {
     const { services } = createServices();
     const { connector, sentMessages } = createConnector(services);
 
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "fix the provider pricing UI" });
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "show projects" });
 
-    expect(services.tasks.createTask).not.toHaveBeenCalled();
-    expect(sentMessages.at(-1)?.text).toContain("Reply \"approve task\" to start or \"cancel\".");
+    expect(sentMessages.at(-1)?.text).toContain("Feather");
   });
 
-  it("approves a pending task confirmation through the existing task path", async () => {
+  it("returns a natural local conversational reply for hello", async () => {
+    const { services } = createServices({ providers: [] });
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "hello" });
+
+    expect(sentMessages.at(-1)?.text).toContain("I can help you think through plans");
+  });
+
+  it("returns a natural local reply for what can you do when no provider is configured", async () => {
+    const { services } = createServices({ providers: [] });
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "what can you do?" });
+
+    expect(sentMessages.at(-1)?.text).toContain("I can answer local status questions");
+    expect(sentMessages.at(-1)?.text).toContain("richer provider-backed chat needs a configured provider");
+  });
+
+  it("calls a configured chat provider in chat-only mode without creating tasks", async () => {
+    const startChat = vi.fn(async (_input: { maxOutputTokens?: number; messages: Array<{ role: string; content: string }> }) => ({ text: "Provider chat reply" }));
+    const { services } = createServices({
+      providers: [createProvider("chat-provider", { name: "Chat Provider", startChat })],
+    });
+    const { connector, sentMessages } = createConnector(services, { chat: { providerId: "chat-provider", maxContextMessages: 12, maxOutputTokens: 700 } });
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "help me think through Feather" });
+
+    expect(startChat).toHaveBeenCalledTimes(1);
+    const firstCall = startChat.mock.calls[0]?.[0];
+    expect(firstCall).toEqual(expect.objectContaining({
+      maxOutputTokens: 700,
+      messages: expect.arrayContaining([{ role: "user", content: "help me think through Feather" }]),
+    }));
+    expect(services.tasks.createTask).not.toHaveBeenCalled();
+    expect(sentMessages.at(-1)?.text).toBe("Provider chat reply");
+  });
+
+  it("creates a pending confirmation for action requests when one project exists", async () => {
     const { services } = createServices();
-    const { connector } = createConnector(services);
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "create a small note in docs saying Telegram alpha test worked" });
+
+    expect(services.tasks.createTask).not.toHaveBeenCalled();
+    expect(sentMessages.at(-1)?.text).toContain("I can create this as a task.");
+    expect(sentMessages.at(-1)?.text).toContain("Reply approve task or edit: <new instruction> or cancel.");
+  });
+
+  it("asks for a project when multiple projects exist and no project is mentioned", async () => {
+    const { services } = createServices({ projects: [createProject("feather", "Feather"), createProject("other", "Other")] });
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "update the README" });
+
+    expect(sentMessages.at(-1)?.text).toContain("Which project should I use?");
+    expect(services.tasks.createTask).not.toHaveBeenCalled();
+  });
+
+  it("lets the user disambiguate the project after an action request", async () => {
+    const { services } = createServices({ projects: [createProject("feather", "Feather"), createProject("other", "Other")] });
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "update the README" });
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "Feather" });
+
+    expect(sentMessages.at(-1)?.text).toContain("Project: Feather");
+    expect(sentMessages.at(-1)?.text).toContain("Reply approve task or edit: <new instruction> or cancel.");
+  });
+
+  it("turns recent conversation into a task proposal when the user says do it", async () => {
+    const { services } = createServices();
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "help me plan a docs polish pass" });
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "do it" });
+
+    expect(sentMessages.at(-1)?.text).toContain("Source: recent Telegram conversation");
+    expect(sentMessages.at(-1)?.text).toContain("Reply approve task or edit: <new instruction> or cancel.");
+  });
+
+  it("approve task only creates a task when a pending proposal exists", async () => {
+    const { services } = createServices();
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "approve task" });
+    expect(sentMessages.at(-1)?.text).toContain("There is no pending task confirmation");
 
     await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "update the README" });
     await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "approve task" });
@@ -312,7 +362,7 @@ describe("TelegramConnector allowlist", () => {
     expect(services.tasks.runTask).toHaveBeenCalledWith("task-1");
   });
 
-  it("cancel clears a pending confirmation", async () => {
+  it("cancel clears pending confirmation state", async () => {
     const { services } = createServices();
     const { connector, sentMessages } = createConnector(services);
 
@@ -325,52 +375,33 @@ describe("TelegramConnector allowlist", () => {
     expect(services.tasks.createTask).not.toHaveBeenCalled();
   });
 
-  it("blocks create-task approval during panic mode", async () => {
+  it("allows editing the pending proposal", async () => {
     const { services } = createServices();
     const { connector, sentMessages } = createConnector(services);
 
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "run the build" });
-    await activatePanic("test panic");
-    try {
-      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "approve task" });
-    } finally {
-      await deactivatePanic();
-    }
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "update the README" });
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "edit: make it docs only, no code" });
 
-    expect(sentMessages.at(-1)?.text).toContain("Panic mode is active");
-    expect(services.tasks.createTask).not.toHaveBeenCalled();
+    expect(sentMessages.at(-1)?.text).toContain("make it docs only, no code");
   });
 
-  it("approves a single pending approval without requiring an id", async () => {
+  it("keeps reject available during panic mode but blocks task proposals and approvals", async () => {
     const { services } = createServices({ approvals: [createApproval("approval-1")] });
-    const { connector } = createConnector(services);
-
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "approve" });
-
-    expect(services.approvals.resolveApproval).toHaveBeenCalledWith("approval-1", "approved", "once");
-  });
-
-  it("asks for an id when multiple approvals are pending", async () => {
-    const { services } = createServices({ approvals: [createApproval("approval-1"), createApproval("approval-2")] });
     const { connector, sentMessages } = createConnector(services);
 
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "approve" });
-
-    expect(sentMessages.at(-1)?.text).toContain("Multiple approvals are pending");
-    expect(services.approvals.resolveApproval).not.toHaveBeenCalled();
-  });
-
-  it("keeps reject available during panic mode", async () => {
-    const { services } = createServices({ approvals: [createApproval("approval-1")] });
-    const { connector } = createConnector(services);
-
     await activatePanic("test panic");
     try {
+      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "help me plan a task for later" });
+      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "update the README" });
+      await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "approve task" });
       await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "reject approval-1" });
     } finally {
       await deactivatePanic();
     }
 
+    expect(sentMessages[0]?.text).toContain("cannot create or approve work until panic is resumed");
+    expect(sentMessages[1]?.text).toContain("cannot create or approve work until panic is resumed");
+    expect(sentMessages[2]?.text).toContain("There is no pending task confirmation");
     expect(services.approvals.resolveApproval).toHaveBeenCalledWith("approval-1", "rejected");
   });
 
@@ -381,34 +412,6 @@ describe("TelegramConnector allowlist", () => {
     await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/resume confirm" });
 
     expect(services.heartbeat.start).toHaveBeenCalledWith();
-  });
-
-  it("starts heartbeat from Telegram without forcing the old hardcoded interval", async () => {
-    const { services } = createServices();
-    const { connector } = createConnector(services);
-
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/heartbeat Feather on" });
-
-    expect(services.heartbeat.start).toHaveBeenCalledWith();
-  });
-
-  it("asks for a project when multiple projects exist and no project is mentioned", async () => {
-    const { services } = createServices({ projects: [createProject("feather", "Feather"), createProject("other", "Other")] });
-    const { connector, sentMessages } = createConnector(services);
-
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "update the README" });
-
-    expect(sentMessages.at(-1)?.text).toContain("I need a project for that task");
-    expect(services.tasks.createTask).not.toHaveBeenCalled();
-  });
-
-  it("returns a helpful reply for unknown plain messages", async () => {
-    const { services } = createServices();
-    const { connector, sentMessages } = createConnector(services);
-
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "hello there" });
-
-    expect(sentMessages.at(-1)?.text).toContain("I can help with status");
   });
 
   it("saves explicit memory through the Telegram command path", async () => {
@@ -439,12 +442,15 @@ describe("TelegramConnector allowlist", () => {
     expect(sentMessages.at(-1)?.text).toContain("Task created with skill");
   });
 
-  it("lists project skills when the command uses a project name", async () => {
+  it("clears the in-memory chat session with /clear-chat", async () => {
     const { services } = createServices();
-    const { connector } = createConnector(services);
+    const { connector, sentMessages } = createConnector(services);
 
-    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/skills Feather" });
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "help me plan a docs polish pass" });
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/clear-chat" });
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "do it" });
 
-    expect(services.skills.list).toHaveBeenCalledWith({ scope: "project", projectId: "feather" });
+    expect(sentMessages.at(-2)?.text).toContain("Cleared the Telegram chat session");
+    expect(sentMessages.at(-1)?.text).toContain("I do not have enough recent conversation");
   });
 });

@@ -103,6 +103,7 @@ export async function startDaemon(options?: { port?: number; dbPath?: string }) 
           globalDefaultProviderId: routingConfig.globalDefaultProviderId,
           allowSingleProviderAutoRoute: routingConfig.allowSingleProviderAutoRoute,
           freeform: globalConfig.telegram?.freeform,
+          chat: globalConfig.telegram?.chat,
         },
         { approvals, projects, tasks, budgets, heartbeat, providers, memories, skills },
       );

@@ -11,7 +11,7 @@
 - stronger heartbeat customization
 - project-local budget files wired into runtime
 - optional remote core + local runner mode
-- more complete Telegram operational workflows
+- richer Telegram follow-up polish: better proposal editing, tighter local planning prompts, and optional live provider chat smoke coverage
 - experimental local tool manifests
 
 Current design docs for the next Guard pass:

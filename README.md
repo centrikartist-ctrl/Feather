@@ -152,6 +152,12 @@ Once configured, start with:
 - `/actions` or `/menu` for grouped operator actions
 - `/examples` for copyable slash and freeform examples
 
+Normal Telegram messages now have three behaviors:
+
+- local state questions like `show projects` or `status` stay deterministic
+- planning/spec/risk discussion becomes bounded chat
+- concrete work requests become task proposals that still need `approve task`
+
 Read-only discovery commands stay available during panic. Mutating commands like `/task`, `/approve`, and `/use-skill` do not.
 
 ## Providers And Pricing
@@ -225,7 +231,29 @@ Use onboarding if you want the simplest path. Feather also supports environment-
 
 Useful commands include `/status`, `/projects`, `/task <project> <prompt>`, `/approvals`, `/approve <id>`, `/reject <id>`, `/panic`, `/resume confirm`, `/budget`, `/cancel <taskId>`, `/actions`, `/menu`, `/examples`, and `/help`.
 
-The current build also supports deterministic freeform Telegram messages for status, approvals, panic/cancel, and task proposals. Action-style plain messages create a confirmation instead of starting work immediately.
+Plain Telegram messages can now:
+
+- answer local state without a provider
+- hold a bounded planning conversation
+- turn direct requests or recent conversation into a task proposal that waits for `approve task`
+
+Telegram chat configuration lives under `telegram.chat` in `~/.feather/config.yml`:
+
+```yaml
+telegram:
+  chat:
+    enabled: true
+    providerId: openai-mini
+    maxContextMessages: 12
+    maxOutputTokens: 700
+```
+
+Current alpha behavior:
+
+- API providers (`openai`, `openrouter`, `openai-compatible`) can back Telegram chat through a chat-only call
+- `codex-cli` remains local-only for Telegram chat in this alpha
+- if no chat provider is configured, Feather falls back to local replies instead of failing silently
+- Telegram operational messages are sent as plain text so Windows paths and backslashes do not break delivery
 
 ## Explicit Memory
 

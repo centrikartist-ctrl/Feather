@@ -30,6 +30,12 @@ export type GlobalConfig = {
         createTask?: boolean;
       };
     };
+    chat?: {
+      enabled?: boolean;
+      providerId?: string;
+      maxContextMessages?: number;
+      maxOutputTokens?: number;
+    };
   };
   providers?: {
     globalDefaultProviderId?: string;
@@ -71,6 +77,11 @@ function getDefaultGlobalConfig(): GlobalConfig {
           readOnly: false,
           createTask: true,
         },
+      },
+      chat: {
+        enabled: true,
+        maxContextMessages: 12,
+        maxOutputTokens: 700,
       },
     },
     providers: {
@@ -150,6 +161,10 @@ export function loadGlobalConfig(): GlobalConfig {
           ...(defaultConfig.telegram?.freeform?.confirmations ?? {}),
           ...(parsed.telegram?.freeform?.confirmations ?? {}),
         },
+      },
+      chat: {
+        ...(defaultConfig.telegram?.chat ?? {}),
+        ...(parsed.telegram?.chat ?? {}),
       },
     },
     providers: {
