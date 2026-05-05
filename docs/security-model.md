@@ -2,8 +2,8 @@
 
 ## Principles
 
-1. **Default deny** — no tool action runs without explicit permission
-2. **Project-scoped** — all tool calls are bounded to the registered project root
+1. **Gated mutation** — writes, shell actions, and approvals stay behind explicit safety gates
+2. **Project-scoped paths** — filesystem access resolves inside the registered project root
 3. **Secret protection** — secret file patterns are always blocked regardless of config
 4. **Shell guardrails** — dangerous shell patterns are blocked globally
 5. **Approval queue** — risky actions must be approved by the user before execution
@@ -43,6 +43,20 @@ format *, del /s *, rmdir /s *
 - All tool calls resolve inside the registered project root
 - Path traversal (`../../`) is rejected
 - `.git`, `node_modules` are always blocked
+
+## Filesystem reads in `v0.1.0-alpha`
+
+Current read behavior is:
+
+- the path must resolve inside the registered project root
+- secret patterns are blocked
+- always-blocked paths are blocked
+- project `permissions.filesystem.deny` patterns are blocked
+- otherwise the read is allowed
+
+That means `v0.1.0-alpha` is project-root scoped plus denylist and secret blocking for reads.
+
+`permissions.filesystem.read` can still be documented in project config, but it is not yet enforced as a strict read allowlist in the current alpha. Strict read allowlist enforcement is planned as a later hardening step.
 
 ## Secrets in provider context
 

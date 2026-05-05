@@ -266,7 +266,7 @@ function resolveReadOnlyTopic(normalized: string): TelegramReadOnlyTopic | undef
     return "recap";
   }
 
-  if (normalized.includes("what should i work on") || normalized.includes("what should we build next")) {
+  if (normalized.includes("what should i work on")) {
     return "next_work";
   }
 
@@ -599,7 +599,7 @@ export class TelegramConnector {
 
     const status = panic.active ? "🚨 PANIC MODE" : "✅ Running";
     const lines = [
-      `*Feather Status*`,
+      "Feather Status",
       `Status: ${status}`,
       `Projects: ${projects.length}`,
       `Pending approvals: ${pending.length}`,
@@ -616,7 +616,7 @@ export class TelegramConnector {
       await this.transport.sendMessage(chatId, "No projects registered.");
       return;
     }
-    const lines = ["*Projects*", ...projects.map((p) => `• ${p.name} — \`${p.rootPath}\``)];
+    const lines = ["Projects", ...projects.map((p) => `- ${p.name} | ${p.rootPath}`)];
     await this.transport.sendMessage(chatId, lines.join("\n"));
   }
 
@@ -653,7 +653,7 @@ export class TelegramConnector {
     });
 
     void this.services.tasks.runTask(task.id);
-    await this.transport.sendMessage(chatId, `✅ Task created: \`${task.id}\`\nPrompt: ${prompt.slice(0, 100)}`);
+    await this.transport.sendMessage(chatId, `✅ Task created: ${task.id}\nPrompt: ${prompt.slice(0, 100)}`);
   }
 
   private async cmdApprovals(chatId: number): Promise<void> {
@@ -663,9 +663,9 @@ export class TelegramConnector {
       return;
     }
 
-    const lines = ["*Pending Approvals*", ""];
+    const lines = ["Pending Approvals", ""];
     for (const a of pending) {
-      lines.push(`*${a.title}*`);
+      lines.push(a.title);
       if (a.projectId) lines.push(`Project: ${a.projectId}`);
       lines.push(`Action: ${a.actionType}`);
       lines.push(`Risk: ${a.risk}`);
@@ -683,7 +683,7 @@ export class TelegramConnector {
       return;
     }
     await this.services.approvals.resolveApproval(id, "approved", "once");
-    await this.transport.sendMessage(chatId, `✅ Approved: \`${id}\``);
+    await this.transport.sendMessage(chatId, `✅ Approved: ${id}`);
   }
 
   private async cmdReject(chatId: number, id: string | undefined): Promise<void> {
@@ -692,7 +692,7 @@ export class TelegramConnector {
       return;
     }
     await this.services.approvals.resolveApproval(id, "rejected");
-    await this.transport.sendMessage(chatId, `❌ Rejected: \`${id}\``);
+    await this.transport.sendMessage(chatId, `❌ Rejected: ${id}`);
   }
 
   private async cmdRecap(chatId: number, projectName: string | undefined): Promise<void> {
@@ -732,7 +732,7 @@ export class TelegramConnector {
 
   private async cmdHelp(chatId: number): Promise<void> {
     const lines = [
-      "*Feather Commands*",
+      "Feather Commands",
       "",
       "/status — Daemon status",
       "/projects — List projects",
@@ -757,7 +757,7 @@ export class TelegramConnector {
       "",
       "Plain messages can ask for local state, discuss plans, and create task proposals that still need approval.",
       "",
-      "*Safety commands*",
+      "Safety commands",
       "/panic — Activate panic mode (cancels all tasks)",
       "/resume confirm — Deactivate panic mode",
       "/cancel <taskId> — Cancel a specific task",
@@ -767,9 +767,9 @@ export class TelegramConnector {
 
   private async cmdActions(chatId: number): Promise<void> {
     const lines = [
-      "*Feather Actions*",
+      "Feather Actions",
       "",
-      "*Read-only*",
+      "Read-only",
       "- status",
       "- projects",
       "- approvals",
@@ -779,22 +779,22 @@ export class TelegramConnector {
       "- memories",
       "- skills",
       "",
-      "*Work*",
+      "Work",
       "- task <project> <prompt>",
       "- use-skill <project> <skill> <prompt>",
       "- plain conversation -> task proposal -> approve task",
       "",
-      "*Control*",
+      "Control",
       "- panic",
       "- resume confirm",
       "- cancel <taskId>",
       "",
-      "*Memory*",
+      "Memory",
       "- save-memory global <text>",
       "- save-memory project <project> <text>",
       "- forget-memory <id>",
       "",
-      "*Guard*",
+      "Guard",
       "- check /health in dashboard or API",
       "- run feather-supervisor status locally",
     ];
@@ -803,40 +803,41 @@ export class TelegramConnector {
 
   private async cmdExamples(chatId: number): Promise<void> {
     const lines = [
-      "*Feather Examples*",
+      "Feather Examples",
       "",
-      "*Read-only*",
+      "Read-only",
       "status",
       "what's going on with Feather?",
       "show projects",
       "any pending approvals?",
       "summarise today for Feather",
       "what can you do?",
+      "what should we build next?",
       "help me plan a docs polish pass",
       "",
-      "*Create work safely*",
+      "Create work safely",
       "fix the README alpha wording",
       "create a small note in docs saying Telegram alpha test worked",
       "/task Feather fix the README alpha wording",
       "do it",
       "",
-      "*Approvals*",
+      "Approvals",
       "approve <id>",
       "reject <id>",
       "approve task",
       "edit: make it docs only",
       "",
-      "*Panic*",
+      "Panic",
       "panic",
       "/panic",
       "/resume confirm",
       "clear chat",
       "",
-      "*Memory*",
+      "Memory",
       "save-memory global Keep summaries short and direct",
       "/save-memory project Feather constraint Always run tests before marking done",
       "",
-      "*Skills*",
+      "Skills",
       "skills",
       "/use-skill Feather safe-ui-pass clean the dashboard cards",
     ];
@@ -866,7 +867,7 @@ export class TelegramConnector {
       return;
     }
     await this.services.tasks.cancelTask(taskId, "cancelled");
-    await this.transport.sendMessage(chatId, `🛑 Task \`${taskId}\` cancelled.`);
+    await this.transport.sendMessage(chatId, `🛑 Task ${taskId} cancelled.`);
   }
 
   private async cmdClearChat(chatId: number, userId: number): Promise<void> {
@@ -885,9 +886,9 @@ export class TelegramConnector {
       await this.transport.sendMessage(chatId, "No explicit memories saved.");
       return;
     }
-    const lines = ["*Explicit Memories*", ""];
+    const lines = ["Explicit Memories", ""];
     for (const memory of memories.slice(0, 20)) {
-      lines.push(`\`${memory.id}\` [${memory.scope}/${memory.kind}] ${memory.content}`);
+      lines.push(`- ${memory.id} [${memory.scope}/${memory.kind}] ${memory.content}`);
     }
     await this.transport.sendMessage(chatId, lines.join("\n"));
   }
@@ -938,7 +939,7 @@ export class TelegramConnector {
       kind,
       content,
     });
-    await this.transport.sendMessage(chatId, `Saved memory \`${memory.id}\` as ${memory.scope}/${memory.kind}.`);
+    await this.transport.sendMessage(chatId, `Saved memory ${memory.id} as ${memory.scope}/${memory.kind}.`);
   }
 
   private async cmdForgetMemory(chatId: number, id: string | undefined): Promise<void> {
@@ -947,7 +948,7 @@ export class TelegramConnector {
       return;
     }
     await this.services.memories.delete(id);
-    await this.transport.sendMessage(chatId, `Deleted memory \`${id}\`.`);
+    await this.transport.sendMessage(chatId, `Deleted memory ${id}.`);
   }
 
   private async cmdSkills(chatId: number, projectArg: string | undefined): Promise<void> {
@@ -967,9 +968,9 @@ export class TelegramConnector {
       await this.transport.sendMessage(chatId, "No skills found.");
       return;
     }
-    const lines = ["*Skills*", ""];
+    const lines = ["Skills", ""];
     for (const skill of skills) {
-      lines.push(`\`${skill.id}\` ${skill.name} [${skill.scope}]`);
+      lines.push(`- ${skill.id} ${skill.name} [${skill.scope}]`);
     }
     await this.transport.sendMessage(chatId, lines.join("\n"));
   }
@@ -1012,7 +1013,7 @@ export class TelegramConnector {
       createdBy: "telegram",
     });
     void this.services.tasks.runTask(task.id);
-    await this.transport.sendMessage(chatId, `✅ Task created with skill \`${skill.name}\`: \`${task.id}\``);
+    await this.transport.sendMessage(chatId, `✅ Task created with skill ${skill.name}: ${task.id}`);
   }
 
   private async handleFreeformApproval(
@@ -1124,7 +1125,7 @@ export class TelegramConnector {
     const createTaskNeedsConfirmation = this.config.freeform?.confirmations?.createTask !== false;
     if (!createTaskNeedsConfirmation) {
       const task = await this.createTelegramTask(project.id, providerId, proposal.prompt);
-      await this.sendConversationReply(chatId, userId, `✅ Task created: \`${task.id}\`\nPrompt: ${proposal.prompt.slice(0, 100)}`);
+      await this.sendConversationReply(chatId, userId, `✅ Task created: ${task.id}\nPrompt: ${proposal.prompt.slice(0, 100)}`);
       return;
     }
 
@@ -1156,7 +1157,7 @@ export class TelegramConnector {
 
     const task = await this.createTelegramTask(confirmation.projectId, confirmation.providerId, confirmation.prompt);
     this.pendingConfirmations.delete(this.pendingConfirmationKey(confirmation.chatId, confirmation.userId));
-    await this.sendConversationReply(chatId, confirmation.userId, `✅ Task created: \`${task.id}\`\nPrompt: ${confirmation.prompt.slice(0, 100)}`);
+    await this.sendConversationReply(chatId, confirmation.userId, `✅ Task created: ${task.id}\nPrompt: ${confirmation.prompt.slice(0, 100)}`);
   }
 
   private async createTelegramTask(projectId: string | undefined, providerId: string | undefined, prompt: string): Promise<Task> {
@@ -1600,6 +1601,10 @@ export class TelegramConnector {
       return `I can answer local status questions, talk through scope, risks, and tradeoffs, and turn a concrete change into a task proposal. I do not run tools or touch project files from chat. Once you approve a proposal, the normal TaskRunner, approvals, budgets, panic checks, and provider routing still apply.${panicNote}${noteSuffix}`;
     }
 
+    if (normalized.includes("what should we build next")) {
+      return `Tell me the outcome you want, the project it belongs to, and the main constraint. I can help narrow the next build step, challenge the scope, and turn it into a task proposal when you are ready.${panicNote}${noteSuffix}`;
+    }
+
     if (normalized.includes("help me think") || normalized.includes("spec this") || normalized.includes("how should i use this")) {
       return `Start with the outcome, scope, constraints, and what done looks like. I can help tighten the brief, call out blind spots, and then turn the plan into a task proposal when you are ready.${panicNote}${noteSuffix}`;
     }
@@ -1652,7 +1657,7 @@ export class TelegramConnector {
    */
   async notifyApproval(approvalId: string, title: string, project: string, action: string, risk: string, reason: string): Promise<void> {
     const text = [
-      "*Feather approval needed*",
+      "Feather approval needed",
       "",
       `Title: ${title}`,
       `Project: ${project}`,

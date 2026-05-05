@@ -89,7 +89,7 @@ pnpm dev
 
 `pnpm run setup` bootstraps `~/.feather/`, writes `config.yml` if missing, creates `agent.md` if missing, and initializes the local DB. It does not require an API key or Telegram.
 
-`pnpm dev` starts the daemon and dashboard development server. The dashboard runs at `http://localhost:5173` during development.
+`pnpm dev` starts the daemon, the dashboard development server, and Feather Guard watching in a separate supervisor process. The dashboard runs at `http://localhost:5173` during development.
 
 During onboarding, Feather can store pasted API keys and Telegram bot tokens locally in `~/.feather/.env.local`. Process environment variables still take precedence if you already manage secrets outside Feather.
 
@@ -130,7 +130,7 @@ Common validation commands:
 
 ## Running Guard
 
-Feather Guard is still a manual supervisor flow in `v0.1.0-alpha`.
+`pnpm dev` now auto-launches Feather Guard for the normal local alpha flow, but Guard remains a separate external process in `apps/supervisor`.
 
 Use the repo-local supervisor commands:
 
@@ -176,6 +176,8 @@ For OpenAI, OpenRouter, and OpenAI-compatible providers you can optionally set:
 
 Those pricing fields are used for budget estimates. If you leave them blank, Feather can still record token usage, but it cannot claim hard spend enforcement.
 
+OpenAI-style providers default to `gpt-4o-mini`. Some model IDs require account access. If validation fails, switch back to `gpt-4o-mini` or use a custom model name. OpenAI-compatible endpoints often need custom model IDs instead of the OpenAI preset list.
+
 API-provider credentials can come from either:
 
 - a pasted key stored locally in `~/.feather/.env.local`
@@ -214,9 +216,11 @@ heartbeat:
       cooldownMinutes: 30
 ```
 
+In `v0.1.0-alpha`, filesystem reads are scoped to the registered project root and then blocked by secret patterns, always-blocked paths, and project deny patterns. `permissions.filesystem.read` entries are currently advisory and documentary; they are not enforced yet as a strict read allowlist. `permissions.filesystem.write` entries do affect write safety and approval behavior.
+
 ## Dashboard And Daemon
 
-- `pnpm dev` starts the daemon plus dashboard HMR
+- `pnpm dev` starts the daemon, dashboard HMR, and Feather Guard in a separate supervisor process
 - The daemon API serves on localhost only
 - Built dashboard assets are served by the daemon after a production build
 

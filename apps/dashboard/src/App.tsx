@@ -30,6 +30,8 @@ import {
   type ProviderFormState,
 } from "./provider-form.js";
 
+const FEATHER_VERSION = "v0.1.0-alpha";
+
 // ── Navigation ───────────────────────────────────────────────────────────────
 const NAV = [
   { to: "/", label: "Home", icon: Home, exact: true },
@@ -85,7 +87,7 @@ function Sidebar() {
         <div className="flex items-center gap-2">
           <span className="text-feather-500 text-xl">🪶</span>
           <span className="font-bold text-white">Feather</span>
-          <span className="text-xs text-slate-500 ml-auto">v0.01</span>
+          <span className="text-xs text-slate-500 ml-auto">{FEATHER_VERSION}</span>
         </div>
         {health && (
           <div className={clsx("text-xs mt-1", health.panic?.active ? "text-red-400" : "text-emerald-400")}>
@@ -183,7 +185,7 @@ function ApprovalPayloadPreview({ payload }: { payload: unknown }) {
         {visiblePayload}
       </pre>
       <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
-        <span>Large diffs are truncated here. Feather v0.01 still uses simple full-replace diff previews.</span>
+        <span>Large diffs are truncated here. Feather {FEATHER_VERSION} still uses simple full-replace diff previews.</span>
         {truncated && (
           <button
             type="button"
@@ -333,12 +335,13 @@ function HomePage() {
               <li>6. Optional: connect Telegram</li>
               <li>7. Optional: add memories</li>
               <li>8. Optional: create or use skills</li>
-              <li>9. Optional: run Feather Guard supervisor</li>
+              <li>9. Guard starts with pnpm dev; manual supervisor commands stay available</li>
             </ol>
           </div>
           <div className="min-w-[260px] rounded-lg border border-slate-700 bg-slate-900/70 p-4">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Useful commands</div>
             <div className="mt-3 space-y-2 text-sm text-slate-300">
+              <div><code className="text-slate-100">pnpm dev</code></div>
               <div><code className="text-slate-100">pnpm run setup</code></div>
               <div><code className="text-slate-100">pnpm --filter @feather/cli exec tsx src/main.ts commands</code></div>
               <div><code className="text-slate-100">pnpm --filter @feather/cli exec tsx src/main.ts doctor</code></div>
@@ -1065,7 +1068,7 @@ function ProvidersPage() {
             <div className="text-xs text-slate-400 mt-1">Configure Codex CLI, OpenAI, OpenRouter, or an OpenAI-compatible endpoint without leaking raw keys back to the dashboard.</div>
           </div>
           <div className="flex items-center justify-between rounded border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs text-slate-400">
-            <span>OpenAI-style providers default to `gpt-4o-mini`. Start there, then move up to `gpt-5.5` or a custom model only when you need it.</span>
+            <span>OpenAI-style providers default to `gpt-4o-mini`. Some models require account access. If validation fails, use `gpt-4o-mini` or Custom. OpenAI-compatible endpoints often need a custom model name.</span>
             {editingProviderId && (
               <button onClick={resetForm} className="text-slate-300 hover:text-white transition-colors">
                 Cancel edit
@@ -1148,6 +1151,7 @@ function ProvidersPage() {
                 {usingCustomModel && (
                   <input value={form.model} onChange={(e) => setForm((current) => ({ ...current, model: e.target.value }))} placeholder="Custom model name" className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
                 )}
+                <div className="text-xs text-slate-500">Some models require account access. If validation fails, use gpt-4o-mini or Custom. OpenAI-compatible endpoints often need a custom model name.</div>
               </div>
             )}
             {form.type !== "codex-cli" && (form.type === "openai" || form.type === "openai-compatible") && (
@@ -1563,6 +1567,7 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
                     {usingCustomProviderModel && (
                       <input value={providerForm.model} onChange={(e) => setProviderForm((current) => ({ ...current, model: e.target.value }))} placeholder="Custom model name" className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
                     )}
+                    <div className="text-xs text-slate-500">Some models require account access. If validation fails, use gpt-4o-mini or Custom. OpenAI-compatible endpoints often need a custom model name.</div>
                   </div>
                 )}
                 {providerForm.type !== "codex-cli" && (providerForm.type === "openai" || providerForm.type === "openai-compatible") && (

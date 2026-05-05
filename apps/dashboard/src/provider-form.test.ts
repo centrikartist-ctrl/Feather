@@ -14,6 +14,8 @@ describe("provider form helpers", () => {
     expect(form.type).toBe("openai");
     expect(form.credentialMode).toBe("local");
     expect(form.model).toBe("gpt-4o-mini");
+    expect(getProviderModelOptions("openai")).toContain("gpt-5");
+    expect(getProviderModelOptions("openai")).toContain("gpt-5.4");
     expect(getProviderModelOptions("openai")).toContain("gpt-5.5");
   });
 

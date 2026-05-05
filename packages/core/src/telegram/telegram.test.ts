@@ -224,6 +224,13 @@ describe("TelegramConnector", () => {
     });
   });
 
+  it("classifies what should we build next as conversation", () => {
+    expect(classifyTelegramFreeformIntent("what should we build next?", { projects: [createProject("feather", "Feather")], pendingApprovals: [] })).toEqual({
+      type: "conversation",
+      message: "what should we build next?",
+    });
+  });
+
   it("keeps slash command discovery working", async () => {
     const { services } = createServices();
     const { connector, sentMessages } = createConnector(services);
@@ -258,6 +265,15 @@ describe("TelegramConnector", () => {
     expect(sentMessages.at(-1)?.text).toContain("C:\\Users\\ciara\\OneDrive\\Desktop\\Projects\\Feather");
   });
 
+  it("replies clearly to /projects when no projects are registered", async () => {
+    const { services } = createServices({ projects: [] });
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "/projects" });
+
+    expect(sentMessages.at(-1)?.text).toContain("No projects registered");
+  });
+
   it("answers show projects through the local state layer", async () => {
     const { services } = createServices();
     const { connector, sentMessages } = createConnector(services);
@@ -284,6 +300,15 @@ describe("TelegramConnector", () => {
 
     expect(sentMessages.at(-1)?.text).toContain("I can answer local status questions");
     expect(sentMessages.at(-1)?.text).toContain("richer provider-backed chat needs a configured provider");
+  });
+
+  it("treats what should we build next as planning conversation", async () => {
+    const { services } = createServices({ providers: [] });
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "what should we build next?" });
+
+    expect(sentMessages.at(-1)?.text).toContain("I can help narrow the next build step");
   });
 
   it("calls a configured chat provider in chat-only mode without creating tasks", async () => {
@@ -314,6 +339,16 @@ describe("TelegramConnector", () => {
     expect(services.tasks.createTask).not.toHaveBeenCalled();
     expect(sentMessages.at(-1)?.text).toContain("I can create this as a task.");
     expect(sentMessages.at(-1)?.text).toContain("Reply approve task or edit: <new instruction> or cancel.");
+  });
+
+  it("explains that a project must be added before proposing work when none are registered", async () => {
+    const { services } = createServices({ projects: [] });
+    const { connector, sentMessages } = createConnector(services);
+
+    await connector.receiveTextMessage({ chatId: 1, userId: 123, text: "create a small note in docs saying Telegram alpha test worked" });
+
+    expect(sentMessages.at(-1)?.text).toContain("No projects are registered yet");
+    expect(services.tasks.createTask).not.toHaveBeenCalled();
   });
 
   it("asks for a project when multiple projects exist and no project is mentioned", async () => {

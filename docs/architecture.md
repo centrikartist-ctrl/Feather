@@ -42,6 +42,8 @@ Providers / Tools / Projects
 
 The supervisor is not a second agent. It does not chat, browse, call models, accept natural-language tasks, or work on user projects.
 
+The repo-local alpha start flow now launches the daemon, dashboard, and Guard together with `pnpm dev`, but Guard still remains an external process under `apps/supervisor` watching the gateway from outside.
+
 ## Telegram Conversation Flow
 
 ```text
@@ -103,6 +105,8 @@ Tool action requires approval
 Approvals cannot bypass panic. Rejection remains allowed during panic so risky work can be blocked.
 
 Telegram chat-originated work uses the same approval and routing model after the operator explicitly approves the proposal. Chat does not bypass TaskRunner gates.
+
+Filesystem reads in `v0.1.0-alpha` are currently project-root scoped plus secret blocking, always-blocked paths, and deny patterns. The documented `filesystem.read` config is not yet enforced as a strict read allowlist.
 
 ## Guard Flow
 

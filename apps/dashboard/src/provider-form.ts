@@ -27,7 +27,24 @@ type ProviderSummary = {
   config: Record<string, unknown>;
 };
 
-const OPENAI_MODEL_OPTIONS = ["gpt-4o-mini", "gpt-4o", "gpt-5.5", "gpt-5.4-mini", "gpt-5.4"];
+const OPENAI_MODEL_OPTIONS = [
+  "gpt-4o-mini",
+  "gpt-4o",
+  "gpt-4.1",
+  "gpt-4.1-mini",
+  "gpt-5",
+  "gpt-5-mini",
+  "gpt-5-nano",
+  "gpt-5-codex",
+  "gpt-5.1",
+  "gpt-5.1-codex",
+  "gpt-5.2",
+  "gpt-5.2-pro",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.5",
+  "gpt-5.5-pro",
+];
 const OPENROUTER_MODEL_OPTIONS = ["openai/gpt-4o-mini", "openai/gpt-4o", "openai/gpt-5.5", "anthropic/claude-3.5-sonnet"];
 
 export function createDefaultProviderForm(): ProviderFormState {

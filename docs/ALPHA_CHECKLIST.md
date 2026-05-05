@@ -43,9 +43,13 @@
 ## Manual alpha smoke
 
 - [ ] `pnpm run setup` succeeds without requiring API keys or Telegram
+- [ ] `pnpm dev` starts daemon, dashboard, and Guard together
+- [ ] Guard stays visible as a separate process in the dev terminal output
+- [ ] Guard tolerates daemon startup delay instead of exiting
 - [ ] `feather doctor` reports clear warnings when providers or projects are missing
 - [ ] Start daemon
 - [ ] Open dashboard
+- [ ] Dashboard shows `v0.1.0-alpha`
 - [ ] Configure provider
 - [ ] Add project
 - [ ] Run simple task
@@ -197,9 +201,43 @@
 - [ ] README matches actual behaviour
 - [ ] Known limitations are honest
 - [ ] README separates local use, development, Guard, and Telegram discovery
+- [ ] README says `pnpm dev` launches Guard but Guard remains external
 - [ ] Telegram freeform doc matches actual deterministic routing
+- [ ] Security docs say reads are project-root scoped plus deny/secret blocking
+- [ ] Docs do not claim `filesystem.read` is a strict enforced read allowlist in `v0.1.0-alpha`
 - [ ] Memory doc matches explicit-only behavior
 - [ ] Skills doc states that skills do not grant permissions
+
+## Alpha demo asset
+
+- [ ] Create one 30-60 second screenshot, GIF, or screen recording
+- [ ] Show onboarding
+- [ ] Show provider setup
+- [ ] Show project setup
+- [ ] Show first task
+- [ ] Show approval and diff preview
+- [ ] Show panic and resume
+- [ ] Optionally show Telegram `/status` or `/actions`
+- [ ] Do not show real API keys
+- [ ] Do not show Telegram bot token
+- [ ] Do not show `~/.feather/.env.local`
+- [ ] Use a fake or demo provider key if setup is recorded
+- [ ] Blur local paths if desired
+
+Suggested demo path:
+
+- [ ] Run setup and start Feather
+- [ ] Open dashboard
+- [ ] Add provider
+- [ ] Add Feather project
+- [ ] Create a read-only task
+- [ ] Create a write task
+- [ ] Show approval and diff
+- [ ] Reject once
+- [ ] Re-run and approve
+- [ ] Trigger panic
+- [ ] Resume
+- [ ] Show Telegram `/status` or `/actions` if configured
 
 ## v0.1.0-alpha tag checklist
 

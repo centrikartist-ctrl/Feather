@@ -50,6 +50,8 @@ Examples:
 - `hello`
 - `what can you do?`
 - `help me think through Feather`
+- `how should I use this for VeriLabs?`
+- `what should we build next?`
 - `spec this idea`
 - `challenge this plan`
 - `what are the risks?`

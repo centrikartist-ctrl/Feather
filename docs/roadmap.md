@@ -10,6 +10,7 @@
 - task console improvements for diffs and tool events
 - stronger heartbeat customization
 - project-local budget files wired into runtime
+- strict `filesystem.read` allowlist enforcement / optional strict-read mode
 - optional remote core + local runner mode
 - richer Telegram follow-up polish: better proposal editing, tighter local planning prompts, and optional live provider chat smoke coverage
 - experimental local tool manifests
