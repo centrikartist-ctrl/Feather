@@ -72,10 +72,10 @@ export class PermissionService {
 
     const writeList = this.config?.permissions?.filesystem?.write ?? [];
     if (writeList.length > 0 && !this.matchesPatterns(resolved.relativePath, writeList)) {
-      return { allowed: false, risk: "review", reason: "Path not in write allowlist — approval required" };
+      return { allowed: false, risk: "blocked", reason: "Path not in configured write scope" };
     }
 
-    return { allowed: true, risk: writeList.length > 0 ? "safe" : "review" };
+    return { allowed: true, risk: "review", reason: "File writes require approval in alpha" };
   }
 
   checkShellCommand(command: string): ShellCheckResult {

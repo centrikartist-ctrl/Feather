@@ -90,6 +90,7 @@ export function renderCommandsGuide(): string {
     "Guard:",
     "  pnpm --filter @feather/supervisor exec tsx src/main.ts status",
     "  pnpm --filter @feather/supervisor exec tsx src/main.ts snapshot create \"manual\"",
+    "  Invoke-RestMethod -Uri \"http://127.0.0.1:47383/diagnostics/noop\" -Method POST",
   ].join("\n");
 }
 

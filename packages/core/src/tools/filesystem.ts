@@ -171,6 +171,16 @@ export function commitPreparedWrite(
       return { ok: false, error: "Approval required before filesystem write." };
     }
 
+    if (ctx.permissions) {
+      const check = ctx.permissions.checkFilesystemWrite(prepared.path);
+      if (!check.allowed) {
+        return { ok: false, error: `Write blocked: ${check.reason ?? prepared.path}` };
+      }
+      if (check.risk === "review" && !ctx.approvalResolved) {
+        return { ok: false, error: "Approval required before filesystem write." };
+      }
+    }
+
     // Stale-content guard: reject if the file was modified after the diff was computed.
     const currentContent = fs.existsSync(prepared.resolvedPath)
       ? fs.readFileSync(prepared.resolvedPath, "utf8")
@@ -211,7 +221,7 @@ export async function writeFile(
 
     if (ctx.permissions) {
       const check = ctx.permissions.checkFilesystemWrite(input.path);
-      if (!check.allowed && check.risk === "blocked") {
+      if (!check.allowed) {
         return { ok: false, error: `Write blocked: ${check.reason ?? input.path}` };
       }
       // P5: review-risk writes require explicit approval resolution.

@@ -19,6 +19,9 @@ if (command === "run") {
   const reason = process.argv.slice(4).join(" ") || "manual snapshot";
   const snapshot = supervisor.createSnapshot(reason);
   console.log(JSON.stringify(snapshot, null, 2));
+  if (!snapshot.ok) {
+    process.exitCode = 1;
+  }
 } else {
   console.error("Usage: feather-supervisor run | status | snapshot create [reason]");
   process.exitCode = 1;

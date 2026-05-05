@@ -36,7 +36,9 @@ Current alpha behavior is intentionally narrower than a full policy engine:
 - reads are scoped to the registered project root
 - reads are blocked by secret patterns, always-blocked paths, and `filesystem.deny`
 - `filesystem.read` entries are currently advisory and documentary, not a strict enforced read allowlist
-- `filesystem.write` entries do affect write safety and approval behavior
+- `filesystem.write` entries define the reviewable write scope, not silent safe-write paths
+- writes inside `filesystem.write` require approval and include a diff preview
+- writes outside `filesystem.write` are blocked unless the user explicitly changes project policy
 
 If you want stricter reads today, use a smaller project root plus `filesystem.deny` patterns. Strict `filesystem.read` allowlist enforcement is planned as future hardening.
 

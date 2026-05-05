@@ -193,6 +193,11 @@ export async function createApiServer(services: ApiServices) {
 
   await app.register(websocket);
 
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_req, body, done) => {
+    const text = typeof body === "string" ? body : body.toString("utf8");
+    done(null, text.trim() ? Object.fromEntries(new URLSearchParams(text)) : {});
+  });
+
   // Error handler
   app.setErrorHandler((error, _req, reply) => {
     app.log.error({ err: error }, "API request failed");
@@ -218,7 +223,7 @@ export async function createApiServer(services: ApiServices) {
   // ── Health ──────────────────────────────────────────────────────────────
   app.get("/health", async () => getStructuredHealth(services));
 
-  app.post("/diagnostics/noop", async () => runNoopDiagnostic(services));
+  app.post("/diagnostics/noop", { bodyLimit: 1024 }, async () => runNoopDiagnostic(services));
 
   app.post<{ Body: unknown }>("/lifecycle/requests", async (req) => {
     assertNotPanic();
@@ -512,6 +517,11 @@ export async function createApiServer(services: ApiServices) {
   app.get<{ Params: { id: string } }>("/tasks/:id/events", async (req) => {
     const events = await services.tasks.getTaskEvents(req.params.id);
     return { events };
+  });
+
+  app.get<{ Params: { id: string } }>("/tasks/:id/approvals", async (req) => {
+    const approvals = await services.approvals.listApprovalsForTask(req.params.id);
+    return { approvals };
   });
 
   app.delete<{ Params: { id: string } }>("/tasks/:id", async (req) => {

@@ -36,8 +36,8 @@ Feather `v0.1.0-alpha` is usable for supervised local experiments and small real
 - Task recovery is conservative.
 - Task recovery is skipped when the daemon starts in panic mode.
 - Codex dangerous auto-approval flags are not emitted.
-- Review-risk file writes require approval.
-- File write approvals include diff previews.
+- File writes inside the configured project write scope require approval by default in this alpha and include diff previews.
+- File writes outside the configured write scope are blocked.
 - Review-risk shell commands require approval.
 - Telegram can activate panic, resume with confirmation, cancel tasks, and handle approvals.
 - The gateway exposes structured `/health` and safe `/diagnostics/noop` endpoints for supervisor checks.
@@ -58,6 +58,7 @@ Feather Guard currently provides:
 - configured restart foundation, disabled by default
 - safe mode via `safe-mode.lock`
 - sanitized snapshot creation
+- snapshot locking plus busy-file retry/skip warnings
 - a file-based lifecycle request queue foundation
 
 It does not yet provide full staged updates, real rollback, runtime manifest protection, signed releases, encrypted snapshots, OS-level separation, service installation, or supervisor Telegram notifications.
@@ -69,6 +70,7 @@ It does not yet provide full staged updates, real rollback, runtime manifest pro
 - OpenAI-compatible budget enforcement requires pricing fields and provider usage events.
 - Providers without pricing stay in usage-only / unknown-pricing mode.
 - File diffs are still simple full-replace diffs in this alpha.
+- Dashboard work is task-detail/event-log focused. A full provider-backed browser chat workbench is not implemented yet.
 - OpenAI, OpenRouter, and OpenAI-compatible providers use a lightweight text-based `feather_tool` protocol today; native provider tool-calling is not implemented yet.
 - Tool-heavy API-provider tasks are still less predictable than Codex CLI and should be treated as supervised workflows.
 - Desktop app packaging is not part of `v0.1.0-alpha`; Feather uses a local web dashboard.
@@ -140,7 +142,7 @@ pnpm --filter @feather/supervisor exec tsx src/main.ts snapshot create "manual"
 pnpm --filter @feather/supervisor exec tsx src/main.ts run
 ```
 
-Guard currently covers health polling, local locks, sanitized snapshots, unreachable-gateway detection, and a restart foundation that stays disabled by default. It does not yet implement full staged updates, real rollback, runtime manifests, encrypted snapshots, service installation, or signed releases.
+Guard currently covers health polling, local locks, sanitized snapshots, snapshot locking, busy-file retry/skip warnings, unreachable-gateway detection, and a restart foundation that stays disabled by default. It does not yet implement full staged updates, real rollback, runtime manifests, encrypted snapshots, service installation, or signed releases.
 
 ## Telegram Command Discovery
 

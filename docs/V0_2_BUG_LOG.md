@@ -14,6 +14,46 @@ Tests:
 
 ## Current entries
 
+### `/diagnostics/noop` rejected PowerShell empty POST
+Category: Guard
+Severity: release-blocking alpha UX
+Status: fixed
+Steps to reproduce: run `Invoke-RestMethod -Uri "http://127.0.0.1:47383/diagnostics/noop" -Method POST`.
+Expected: noop diagnostics should accept an empty local POST and return structured diagnostics.
+Actual: Fastify returned unsupported media type for the PowerShell request.
+Fix: accepted empty form-style POSTs while keeping diagnostics sealed and non-mutating.
+Tests: guard API tests cover empty POST and JSON POST.
+
+### Default docs writes bypassed approval
+Category: approvals
+Severity: release-blocking safety
+Status: fixed
+Steps to reproduce: ask the dashboard to create `docs/alpha-manual-test.md` under default project config.
+Expected: file writes should require approval with diff preview.
+Actual: default `filesystem.write` paths were treated as safe writes.
+Fix: alpha write scope is now review-gated. Writes inside configured scope require approval; writes outside scope are blocked.
+Tests: permission and task-runner approval tests.
+
+### Guard snapshot crashed on busy files or overlap
+Category: Guard
+Severity: release-blocking reliability
+Status: fixed
+Steps to reproduce: run manual snapshot while Feather is active or start two snapshots quickly.
+Expected: no overlapping snapshot chaos; busy files retry or skip with warnings.
+Actual: Windows `EBUSY` on files such as `agent.md` could crash the command.
+Fix: added `snapshot.lock`, unique snapshot IDs, busy-file retry/backoff, and skip-with-warning metadata.
+Tests: supervisor snapshot lock and busy-file tests.
+
+### Dashboard task output was hard to find
+Category: UX
+Severity: release-blocking alpha UX
+Status: fixed for alpha minimum
+Steps to reproduce: submit a dashboard Quick Task and try to see the response.
+Expected: the operator can inspect prompt, status, events, output, errors, and approvals.
+Actual: tasks appeared in a list with no detail view.
+Fix: Quick Task navigates to task detail; task cards open detail; detail shows output, errors, event log, and approvals.
+Tests: dashboard build.
+
 ### Alpha docs still used v0.01 wording
 Category: docs
 Severity: release-blocking

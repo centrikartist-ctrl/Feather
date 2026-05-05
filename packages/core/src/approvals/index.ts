@@ -214,6 +214,12 @@ export class ApprovalService {
     return rows.map(rowToApproval);
   }
 
+  async listApprovalsForTask(taskId: string): Promise<Approval[]> {
+    const db = getDb();
+    const rows = await db.select().from(approvals).where(eq(approvals.taskId, taskId));
+    return rows.map(rowToApproval);
+  }
+
   async getApproval(id: string): Promise<Approval | null> {
     const db = getDb();
     const rows = await db.select().from(approvals).where(eq(approvals.id, id)).limit(1);

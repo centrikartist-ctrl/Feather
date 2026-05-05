@@ -36,7 +36,7 @@ class ApprovalToolProvider implements ProviderAdapter {
     yield {
       type: "tool_request",
       toolName: "filesystem.writeFile",
-      input: { path: "notes/result.txt", content: "approved" },
+      input: { path: "docs/result.txt", content: "approved" },
     };
     yield { type: "done", summary: "tool complete" };
   }
@@ -267,7 +267,7 @@ describe("TaskRunner", () => {
     const events = await runner.getTaskEvents(task.id);
 
     expect(finalTask?.status).toBe("completed");
-    expect(fs.readFileSync(path.join(projectRoot, "notes", "result.txt"), "utf8")).toBe("approved");
+    expect(fs.readFileSync(path.join(projectRoot, "docs", "result.txt"), "utf8")).toBe("approved");
     expect(events.some((event) => event.type === "approval_requested")).toBe(true);
     expect(events.some((event) => event.type === "approval_resolved")).toBe(true);
     expect(events.some((event) => event.type === "tool_result")).toBe(true);
@@ -301,7 +301,7 @@ describe("TaskRunner", () => {
 
     const finalTask = await runner.getTask(task.id);
     expect(finalTask?.status).toBe("blocked");
-    expect(fs.existsSync(path.join(projectRoot, "notes", "result.txt"))).toBe(false);
+    expect(fs.existsSync(path.join(projectRoot, "docs", "result.txt"))).toBe(false);
   });
 
   it("propagates cancellation to the provider and ignores late events", async () => {
@@ -440,7 +440,7 @@ describe("TaskRunner", () => {
       reason: "restart recovery test",
       actionType: "filesystem",
       risk: "review",
-      payload: { toolName: "filesystem.writeFile", input: { path: "notes/result.txt", content: "approved after restart" } },
+        payload: { toolName: "filesystem.writeFile", input: { path: "docs/result.txt", content: "approved after restart" } },
     });
 
     const beforeRestart = await runner.getTask(task.id);

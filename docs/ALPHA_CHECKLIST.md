@@ -28,6 +28,8 @@
 
 - [ ] `GET /health` returns structured status and checks
 - [ ] `POST /diagnostics/noop` passes without model calls or user project writes
+- [ ] PowerShell empty POST works: `Invoke-RestMethod -Uri "http://127.0.0.1:47383/diagnostics/noop" -Method POST`
+- [ ] JSON POST works: `Invoke-RestMethod -Uri "http://127.0.0.1:47383/diagnostics/noop" -Method POST -ContentType "application/json" -Body "{}"`
 - [ ] `panic.lock`, `maintenance.lock`, `update.lock`, and `safe-mode.lock` paths are local and file-based
 - [ ] Supervisor `status` detects reachable gateway health
 - [ ] Supervisor detects unreachable gateway
@@ -35,6 +37,9 @@
 - [ ] Supervisor enters safe mode after repeated hard failures
 - [ ] Supervisor does not restart while `safe-mode.lock` exists
 - [ ] Snapshot create writes sanitized files only
+- [ ] Snapshot create returns copied files, skipped files, warnings, and ok true/false
+- [ ] Concurrent snapshot commands do not overlap; `snapshot.lock` returns a clear in-progress result
+- [ ] Busy files such as `agent.md` or SQLite files are retried and skipped with warnings instead of crashing
 - [ ] Snapshot redacts YAML, dotenv, spaced assignment, and JSON-like secret lines
 - [ ] Snapshot excludes `.env*`, credentials, keys, logs, DB smoke temp projects, snapshots, `.git`, `node_modules`, and build output
 - [ ] Lifecycle request endpoint writes JSON request files and does not execute lifecycle actions directly
@@ -253,6 +258,12 @@ Suggested demo path:
 - [ ] Snapshot redaction/exclusion tests pass
 - [ ] `/health` manual check passes
 - [ ] `/diagnostics/noop` manual check passes
+- [ ] Dashboard Quick Task opens task detail automatically
+- [ ] Task cards open task detail
+- [ ] Task detail shows prompt, status, provider, created time, events, final output, errors, and approvals
+- [ ] First write task to a default docs path creates an approval before writing
+- [ ] Rejected write approval does not create or modify the file
+- [ ] Approved write approval creates or modifies the file
 - [ ] supervisor status manual check passes
 - [ ] supervisor snapshot create manual check passes
 - [ ] no `.env*`, credentials, DBs, logs, snapshots, or temp projects staged

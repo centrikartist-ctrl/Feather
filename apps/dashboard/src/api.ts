@@ -76,7 +76,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ ok: boolean; version: string; panic: { active: boolean } }>("/health"),
+  health: () => request<{ ok: boolean; status?: string; version: string; panic: { active: boolean }; locks?: Record<string, { active: boolean; path: string; reason?: string }> }>("/health"),
 
   onboarding: {
     state: () => request<{
@@ -115,6 +115,7 @@ export const api = {
       request<{ task: import("@feather/shared").Task }>("/tasks", { method: "POST", body: JSON.stringify(body) }),
     cancel: (id: string) => request<{ ok: boolean }>(`/tasks/${id}`, { method: "DELETE" }),
     events: (id: string) => request<{ events: import("@feather/shared").TaskEvent[] }>(`/tasks/${id}/events`),
+    approvals: (id: string) => request<{ approvals: import("@feather/shared").Approval[] }>(`/tasks/${id}/approvals`),
   },
 
   memories: {

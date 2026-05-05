@@ -74,10 +74,10 @@ describe("PermissionService – filesystem read", () => {
 });
 
 describe("PermissionService – filesystem write", () => {
-  it("allows write to allowlisted src/ path", () => {
+  it("requires review for configured write scope paths", () => {
     const r = svc.checkFilesystemWrite("src/new-file.ts");
     expect(r.allowed).toBe(true);
-    expect(r.risk).toBe("safe");
+    expect(r.risk).toBe("review");
   });
 
   it("blocks write to .env", () => {
@@ -96,10 +96,10 @@ describe("PermissionService – filesystem write", () => {
     expect(r.allowed).toBe(false);
   });
 
-  it("requires review for path not in write allowlist", () => {
+  it("blocks paths outside configured write scope", () => {
     const r = svc.checkFilesystemWrite("random-dir/file.txt");
     expect(r.allowed).toBe(false);
-    expect(r.risk).toBe("review");
+    expect(r.risk).toBe("blocked");
   });
 });
 

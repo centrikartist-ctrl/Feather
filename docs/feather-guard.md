@@ -22,6 +22,13 @@ POST /diagnostics/noop
 
 `/diagnostics/noop` is sealed and local. It does not call models, touch user projects, send Telegram messages, run shell, or trigger normal agent reasoning.
 
+PowerShell empty POST works without an explicit JSON content type:
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:47383/diagnostics/noop" -Method POST
+Invoke-RestMethod -Uri "http://127.0.0.1:47383/diagnostics/noop" -Method POST -ContentType "application/json" -Body "{}"
+```
+
 ## Locks
 
 Guard uses file locks under Feather home:
@@ -75,7 +82,7 @@ If `safe-mode.lock` exists, the supervisor does not keep restarting the gateway.
 
 ## Snapshots
 
-Snapshots are written under Feather home `snapshots/` by default.
+Snapshots are written under Feather home `snapshots/` by default. Snapshot creation uses `locks/snapshot.lock` so only one snapshot runs at a time. If another snapshot is running, the command returns a clear in-progress result instead of starting overlapping copies.
 
 Included:
 
@@ -98,6 +105,8 @@ Excluded:
 - snapshots
 
 Sensitive config lines containing token, API key, secret, or password are redacted before copy. Redaction covers common YAML, dotenv, spaced assignment, and JSON-like forms, but secrets should still live outside snapshot inputs wherever practical.
+
+On Windows, files such as `agent.md`, `feather.db`, `feather.db-wal`, and `feather.db-shm` can be temporarily busy. Guard retries busy copies and then skips non-critical files with warnings in the snapshot manifest. A partial snapshot exits successfully only when at least one useful sanitized file was copied.
 
 ## Current Limits
 

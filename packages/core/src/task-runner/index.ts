@@ -598,7 +598,7 @@ export class TaskRunner {
       case "filesystem.writeFile": {
         const input = WriteFileInput.parse(rawInput);
         const check = permissions?.checkFilesystemWrite(input.path);
-        if (check && !check.allowed && check.risk === "blocked") {
+        if (check && !check.allowed) {
           throw new TaskInterruptedError("blocked", `Blocked file write: ${check.reason ?? input.path}`);
         }
         // Prepare write eagerly to capture diff for the approval preview (P4).

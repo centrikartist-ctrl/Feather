@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route, NavLink, useNavigate } from "react-router-dom";
+import { Routes, Route, NavLink, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Home,
@@ -131,9 +131,9 @@ function Sidebar() {
 }
 
 // ── Pages ────────────────────────────────────────────────────────────────────
-function Card({ children, className }: { children: React.ReactNode; className?: string }) {
+function Card({ children, className, onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
   return (
-    <div className={clsx("bg-slate-800 border border-slate-700 rounded-lg p-4", className)}>
+    <div onClick={onClick} className={clsx("bg-slate-800 border border-slate-700 rounded-lg p-4", className)}>
       {children}
     </div>
   );
@@ -154,6 +154,41 @@ function Badge({ children, variant = "default" }: { children: React.ReactNode; v
 }
 
 const APPROVAL_PAYLOAD_PREVIEW_LIMIT = 4000;
+
+function statusColor(s: string): "success" | "info" | "default" | "danger" | "warning" {
+  return ({
+    running: "success",
+    queued: "info",
+    completed: "default",
+    failed: "danger",
+    cancelled: "default",
+    awaiting_approval: "warning",
+    blocked: "danger",
+    planning: "info",
+  }[s] ?? "default") as "success" | "info" | "default" | "danger" | "warning";
+}
+
+function stringifyEvent(event: unknown): string {
+  if (typeof event !== "object" || event === null) {
+    return String(event);
+  }
+  const record = event as Record<string, unknown>;
+  if (record.type === "message") return String(record.content ?? "");
+  if (record.type === "summary") return String(record.content ?? "");
+  if (record.type === "error") return String(record.message ?? "");
+  if (record.type === "command_output") return String(record.stdout ?? "");
+  if (record.type === "tool_result") return JSON.stringify(record.output ?? null, null, 2);
+  if (record.type === "diff") return String(record.diff ?? "");
+  if (record.type === "provider_event") return JSON.stringify(record.event ?? record, null, 2);
+  return JSON.stringify(record, null, 2);
+}
+
+function extractTaskFinalOutput(events: import("@feather/shared").TaskEvent[] | undefined): string {
+  const summary = [...(events ?? [])].reverse().find((event) => event.type === "summary");
+  if (summary) return stringifyEvent(summary);
+  const assistantMessages = (events ?? []).filter((event) => event.type === "message" && "role" in event && event.role === "assistant");
+  return assistantMessages.map(stringifyEvent).join("").trim();
+}
 
 function formatCostMode(mode: "known" | "estimated" | "unknown" | undefined): "known" | "estimated" | "unknown" {
   return mode ?? "unknown";
@@ -317,38 +352,24 @@ function HomePage() {
       </Card>
 
       <Card>
-        <div className="flex items-start justify-between gap-6">
-          <div className="space-y-3">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-300">How To Use Feather</h2>
-              <p className="mt-2 max-w-3xl text-sm text-slate-400">
-                Feather works best as a supervised loop: add a provider, register a project, create a small task,
-                review risky writes or commands before approving them, and use panic if anything feels wrong.
-              </p>
-            </div>
-            <ol className="grid gap-2 text-sm text-slate-300 md:grid-cols-2">
-              <li>1. Add a provider</li>
-              <li>2. Add a project</li>
-              <li>3. Create a small task</li>
-              <li>4. Review approvals before risky writes or commands</li>
-              <li>5. Use panic if anything feels wrong</li>
-              <li>6. Optional: connect Telegram</li>
-              <li>7. Optional: add memories</li>
-              <li>8. Optional: create or use skills</li>
-              <li>9. Guard starts with pnpm dev; manual supervisor commands stay available</li>
-            </ol>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-300">Recent Work</h2>
+            <p className="mt-1 text-sm text-slate-400">Open a task to inspect its prompt, event log, approvals, errors, and final output.</p>
           </div>
-          <div className="min-w-[260px] rounded-lg border border-slate-700 bg-slate-900/70 p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Useful commands</div>
-            <div className="mt-3 space-y-2 text-sm text-slate-300">
-              <div><code className="text-slate-100">pnpm dev</code></div>
-              <div><code className="text-slate-100">pnpm run setup</code></div>
-              <div><code className="text-slate-100">pnpm --filter @feather/cli exec tsx src/main.ts commands</code></div>
-              <div><code className="text-slate-100">pnpm --filter @feather/cli exec tsx src/main.ts doctor</code></div>
-              <div><code className="text-slate-100">pnpm --filter @feather/supervisor exec tsx src/main.ts status</code></div>
-              <div><code className="text-slate-100">/help</code>, <code className="text-slate-100">/actions</code>, <code className="text-slate-100">/examples</code></div>
-            </div>
-          </div>
+          <button type="button" onClick={() => navigate("/settings")} className="text-sm text-slate-400 hover:text-white">Open user guide</button>
+        </div>
+        <div className="mt-4 space-y-2">
+          {taskData?.tasks.slice(-3).reverse().map((task) => (
+            <button key={task.id} type="button" onClick={() => navigate(`/tasks/${task.id}`)} className="block w-full rounded border border-slate-700 bg-slate-900 p-3 text-left transition-colors hover:border-slate-500">
+              <div className="flex items-center gap-2">
+                <Badge variant={statusColor(task.status)}>{task.status}</Badge>
+                <span className="truncate text-sm font-medium text-white">{task.title}</span>
+              </div>
+              <div className="mt-1 truncate text-xs text-slate-500">{task.providerId} - {new Date(task.createdAt).toLocaleString()}</div>
+            </button>
+          ))}
+          {taskData?.tasks.length === 0 && <div className="text-sm text-slate-500">No recent tasks yet.</div>}
         </div>
       </Card>
 
@@ -484,17 +505,7 @@ function ProjectsPage() {
 
 function TasksPage() {
   const { data, isLoading } = useQuery({ queryKey: ["tasks"], queryFn: () => api.tasks.list(), refetchInterval: 3000 });
-
-  const statusColor = (s: string) => ({
-    running: "success",
-    queued: "info",
-    completed: "default",
-    failed: "danger",
-    cancelled: "default",
-    awaiting_approval: "warning",
-    blocked: "danger",
-    planning: "info",
-  }[s] ?? "default") as "success" | "info" | "default" | "danger" | "warning";
+  const navigate = useNavigate();
 
   return (
     <div className="p-6 space-y-4">
@@ -502,7 +513,7 @@ function TasksPage() {
       {isLoading && <div className="text-slate-400">Loading...</div>}
       <div className="space-y-2">
         {data?.tasks.map((t) => (
-          <Card key={t.id} className="hover:border-slate-600 transition-colors">
+          <Card key={t.id} className="hover:border-slate-600 transition-colors cursor-pointer" onClick={() => navigate(`/tasks/${t.id}`)}>
             <div className="flex items-start gap-3">
               <Badge variant={statusColor(t.status)}>{t.status}</Badge>
               <div className="flex-1 min-w-0">
@@ -516,6 +527,96 @@ function TasksPage() {
       {data?.tasks.length === 0 && (
         <div className="text-center py-12 text-slate-500">No tasks yet.</div>
       )}
+    </div>
+  );
+}
+
+function TaskDetailPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { data: taskData } = useQuery({ queryKey: ["task", id], queryFn: () => api.tasks.get(id!), enabled: Boolean(id), refetchInterval: 3000 });
+  const { data: eventData } = useQuery({ queryKey: ["task-events", id], queryFn: () => api.tasks.events(id!), enabled: Boolean(id), refetchInterval: 2000 });
+  const { data: approvalData } = useQuery({ queryKey: ["task-approvals", id], queryFn: () => api.tasks.approvals(id!), enabled: Boolean(id), refetchInterval: 3000 });
+  const events = eventData?.events ?? [];
+  const taskApprovals = approvalData?.approvals ?? [];
+  const finalOutput = extractTaskFinalOutput(events);
+  const errors = events.filter((event) => event.type === "error");
+
+  if (!id) {
+    return <div className="p-6 text-slate-400">Task id missing.</div>;
+  }
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <button type="button" onClick={() => navigate("/tasks")} className="text-sm text-slate-400 hover:text-white">Back to tasks</button>
+        {taskData?.task && <Badge variant={statusColor(taskData.task.status)}>{taskData.task.status}</Badge>}
+      </div>
+
+      <Card>
+        <h1 className="text-2xl font-bold text-white">{taskData?.task.title ?? "Loading task..."}</h1>
+        {taskData?.task && (
+          <div className="mt-2 text-xs text-slate-500">
+            {taskData.task.providerId} - {new Date(taskData.task.createdAt).toLocaleString()} {taskData.task.skillId ? `- skill ${taskData.task.skillId}` : ""}
+          </div>
+        )}
+        <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900 p-3">
+          <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">Prompt</div>
+          <div className="whitespace-pre-wrap text-sm text-slate-200">{taskData?.task.prompt ?? ""}</div>
+        </div>
+      </Card>
+
+      {finalOutput && (
+        <Card>
+          <h2 className="mb-3 text-sm font-semibold text-slate-300">Final Output</h2>
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-slate-900 p-3 text-sm text-slate-200">{finalOutput}</pre>
+        </Card>
+      )}
+
+      {errors.length > 0 && (
+        <Card className="border-red-500/30 bg-red-500/10">
+          <h2 className="mb-3 text-sm font-semibold text-red-100">Errors</h2>
+          <div className="space-y-2">
+            {errors.map((event, index) => (
+              <pre key={index} className="whitespace-pre-wrap rounded bg-slate-950/60 p-3 text-sm text-red-100">{stringifyEvent(event)}</pre>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card>
+        <h2 className="mb-3 text-sm font-semibold text-slate-300">Approvals</h2>
+        {taskApprovals.length === 0 ? (
+          <div className="text-sm text-slate-500">No approvals recorded for this task.</div>
+        ) : (
+          <div className="space-y-3">
+            {taskApprovals.map((approval) => (
+              <div key={approval.id} className="rounded border border-yellow-500/30 bg-yellow-500/10 p-3">
+                <div className="flex items-center gap-2">
+                  <Badge variant={approval.risk === "dangerous" ? "danger" : "warning"}>{approval.risk}</Badge>
+                  <Badge variant={approval.status === "pending" ? "warning" : approval.status === "approved" ? "success" : "default"}>{approval.status}</Badge>
+                  <span className="text-sm font-medium text-white">{approval.title}</span>
+                </div>
+                <p className="mt-1 text-sm text-slate-300">{approval.reason}</p>
+                <ApprovalPayloadPreview payload={approval.payload} />
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <h2 className="mb-3 text-sm font-semibold text-slate-300">Event Log</h2>
+        <div className="space-y-2">
+          {events.length === 0 && <div className="text-sm text-slate-500">No events recorded yet.</div>}
+          {events.map((event, index) => (
+            <div key={index} className="rounded border border-slate-700 bg-slate-900 p-3">
+              <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">{event.type}</div>
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap text-xs text-slate-300">{stringifyEvent(event)}</pre>
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -1345,6 +1446,55 @@ function SettingsPage() {
       </Card>
 
       <Card>
+        <h2 className="font-semibold text-white mb-3">User Guide</h2>
+        <div className="grid gap-4 text-sm text-slate-300 md:grid-cols-2">
+          <div>
+            <div className="font-medium text-white">First run</div>
+            <p className="mt-1 text-slate-400">Configure one provider, register one project, finish the global agent profile, then start with a small supervised task.</p>
+          </div>
+          <div>
+            <div className="font-medium text-white">Providers</div>
+            <p className="mt-1 text-slate-400">Use Codex CLI or API-style providers. OpenAI-compatible providers use Feather's text-based tool protocol, not native provider tool-calling.</p>
+          </div>
+          <div>
+            <div className="font-medium text-white">Projects</div>
+            <p className="mt-1 text-slate-400">Project config lives under .feather. Default alpha writes are review-gated inside configured write scope and blocked outside it.</p>
+          </div>
+          <div>
+            <div className="font-medium text-white">Dashboard tasks</div>
+            <p className="mt-1 text-slate-400">Quick Task opens a task detail page with prompt, status, event log, final output, errors, and related approvals.</p>
+          </div>
+          <div>
+            <div className="font-medium text-white">Approvals</div>
+            <p className="mt-1 text-slate-400">Review-risk file writes and shell commands wait for approval. File write approvals include a diff preview.</p>
+          </div>
+          <div>
+            <div className="font-medium text-white">Panic and resume</div>
+            <p className="mt-1 text-slate-400">Panic cancels active work, pauses heartbeat, and blocks new work. Resume only when you are ready to continue.</p>
+          </div>
+          <div>
+            <div className="font-medium text-white">Guard</div>
+            <p className="mt-1 text-slate-400">Guard watches health, locks, and snapshots. It is not a chat agent and does not work on projects.</p>
+          </div>
+          <div>
+            <div className="font-medium text-white">Memory, skills, heartbeat</div>
+            <p className="mt-1 text-slate-400">These add context and routine checks, but do not bypass panic, approvals, permissions, budgets, denied paths, or provider routing safety.</p>
+          </div>
+          <div>
+            <div className="font-medium text-white">Secrets and local env</div>
+            <p className="mt-1 text-slate-400">Keep .env, .env.local, keys, credentials, local DBs, logs, snapshots, and build output out of git.</p>
+          </div>
+          <div>
+            <div className="font-medium text-white">Known alpha limits</div>
+            <p className="mt-1 text-slate-400">Not production-ready. Cancellation is best-effort. Guard rollback, staged updates, encrypted snapshots, and OS-level separation are not complete.</p>
+          </div>
+        </div>
+        <div className="mt-4 rounded border border-slate-700 bg-slate-900 p-3 text-xs text-slate-400">
+          Diagnostics: <code className="text-slate-100">Invoke-RestMethod -Uri "http://127.0.0.1:47383/diagnostics/noop" -Method POST</code>
+        </div>
+      </Card>
+
+      <Card>
         <h2 className="font-semibold text-white mb-2">Daemon Info</h2>
         <div className="text-sm text-slate-400 space-y-1">
           <div>Version: <span className="text-white">{health?.version ?? "—"}</span></div>
@@ -1906,6 +2056,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/tasks/:id" element={<TaskDetailPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/heartbeat" element={<HeartbeatPage />} />
           <Route path="/memory" element={<MemoryPage />} />

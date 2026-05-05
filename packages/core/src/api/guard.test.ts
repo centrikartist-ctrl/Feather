@@ -42,6 +42,24 @@ describe("guard API", () => {
       const diagnosticBody = diagnostic.json();
       expect(diagnosticBody.result).toBe("pass");
       expect(diagnosticBody.checks.dbWriteTemp).toBe("pass");
+
+      const powershellStyleDiagnostic = await daemon.app.inject({
+        method: "POST",
+        url: "/diagnostics/noop",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        payload: "",
+      });
+      expect(powershellStyleDiagnostic.statusCode).toBe(200);
+      expect(powershellStyleDiagnostic.json().result).toBe("pass");
+
+      const jsonDiagnostic = await daemon.app.inject({
+        method: "POST",
+        url: "/diagnostics/noop",
+        headers: { "content-type": "application/json" },
+        payload: "{}",
+      });
+      expect(jsonDiagnostic.statusCode).toBe(200);
+      expect(jsonDiagnostic.json().checks.dbWriteTemp).toBe("pass");
     } finally {
       await daemon.app.close();
     }

@@ -83,7 +83,7 @@ try {
   }));
 
   results.push(await runCheck("tool_write_approve", async () => {
-    const prompt = "Create a file named smoke-ok.txt containing exactly FEATHER_TOOL_WRITE_OK. Use Feather tool protocol if you need to write.";
+    const prompt = "Create a file named docs/smoke-ok.txt containing exactly FEATHER_TOOL_WRITE_OK. Use Feather tool protocol if you need to write.";
     promptsRun.push(prompt);
     const task = await createTask(baseUrl, {
       projectId: project.project.id,
@@ -92,9 +92,9 @@ try {
       prompt,
     });
     const approval = await waitForPendingApproval(baseUrl, task.task.id);
-    const smokePath = path.join(projectRoot, "smoke-ok.txt");
+    const smokePath = path.join(projectRoot, "docs", "smoke-ok.txt");
     if (fs.existsSync(smokePath)) {
-      throw new Error("smoke-ok.txt existed before approval.");
+      throw new Error("docs/smoke-ok.txt existed before approval.");
     }
     await api(baseUrl, `/approvals/${approval.id}/resolve`, {
       method: "POST",
@@ -105,22 +105,22 @@ try {
       throw new Error(`Task finished with status ${finalTask.status}.`);
     }
     if (!fs.existsSync(smokePath)) {
-      throw new Error("smoke-ok.txt was not created after approval.");
+      throw new Error("docs/smoke-ok.txt was not created after approval.");
     }
     const content = fs.readFileSync(smokePath, "utf8").trim();
     if (content !== "FEATHER_TOOL_WRITE_OK") {
       throw new Error(`Unexpected file content: ${content}`);
     }
     const events = await getTaskEvents(baseUrl, task.task.id);
-    if (!events.some((event) => event.type === "diff" && event.path === "smoke-ok.txt")) {
-      throw new Error("No diff event recorded for smoke-ok.txt.");
+    if (!events.some((event) => event.type === "diff" && event.path === "docs/smoke-ok.txt")) {
+      throw new Error("No diff event recorded for docs/smoke-ok.txt.");
     }
-    smokeFiles.push("smoke-ok.txt");
+    smokeFiles.push("docs/smoke-ok.txt");
     return content;
   }));
 
   results.push(await runCheck("tool_write_reject", async () => {
-    const prompt = "Create a file named smoke-reject.txt containing exactly SHOULD_NOT_EXIST. Use Feather tool protocol if you need to write.";
+    const prompt = "Create a file named docs/smoke-reject.txt containing exactly SHOULD_NOT_EXIST. Use Feather tool protocol if you need to write.";
     promptsRun.push(prompt);
     const task = await createTask(baseUrl, {
       projectId: project.project.id,
@@ -134,8 +134,8 @@ try {
       body: JSON.stringify({ decision: "rejected" }),
     });
     const finalTask = await waitForTaskCompletion(baseUrl, task.task.id);
-    if (fs.existsSync(path.join(projectRoot, "smoke-reject.txt"))) {
-      throw new Error("smoke-reject.txt exists after rejection.");
+    if (fs.existsSync(path.join(projectRoot, "docs", "smoke-reject.txt"))) {
+      throw new Error("docs/smoke-reject.txt exists after rejection.");
     }
     const events = await getTaskEvents(baseUrl, task.task.id);
     if (!events.some((event) => event.type === "approval_resolved" && event.decision === "rejected")) {
