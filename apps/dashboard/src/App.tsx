@@ -18,6 +18,17 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { api, type AgentProfileRequest, type MachineSetupRequest, type OnboardingState } from "./api.js";
+import {
+  applyProviderTypeDefaults,
+  createDefaultProviderForm,
+  getProviderCredentialSummary,
+  getProviderModelOptions,
+  isCustomProviderModel,
+  isProviderFormValid,
+  providerToForm,
+  serializeProviderForm,
+  type ProviderFormState,
+} from "./provider-form.js";
 
 // ── Navigation ───────────────────────────────────────────────────────────────
 const NAV = [
@@ -1015,98 +1026,14 @@ function SkillsPage() {
   );
 }
 
-type ProviderFormState = {
-  id: string;
-  name: string;
-  type: "codex-cli" | "openai" | "openai-compatible" | "openrouter";
-  enabled: boolean;
-  command: string;
-  mode: "exec" | "apply";
-  apiKeyEnv: string;
-  model: string;
-  baseUrl: string;
-  maxTaskCents: string;
-  inputCentsPer1MTokens: string;
-  outputCentsPer1MTokens: string;
-};
-
-function createDefaultProviderForm(): ProviderFormState {
-  return {
-    id: "",
-    name: "",
-    type: "codex-cli",
-    enabled: true,
-    command: "codex",
-    mode: "exec",
-    apiKeyEnv: "OPENAI_API_KEY",
-    model: "gpt-5.4-mini",
-    baseUrl: "https://api.openai.com/v1",
-    maxTaskCents: "",
-    inputCentsPer1MTokens: "",
-    outputCentsPer1MTokens: "",
-  };
-}
-
-function serializeProviderForm(form: ProviderFormState): Record<string, unknown> {
-  return {
-    id: form.id,
-    name: form.name,
-    type: form.type,
-    enabled: form.enabled,
-    ...(form.type === "codex-cli"
-      ? { command: form.command || undefined, mode: form.mode }
-      : {
-          apiKeyEnv: form.apiKeyEnv,
-          model: form.model,
-          ...(form.maxTaskCents ? { maxTaskCents: Number(form.maxTaskCents) } : {}),
-          ...(form.inputCentsPer1MTokens ? { inputCentsPer1MTokens: Number(form.inputCentsPer1MTokens) } : {}),
-          ...(form.outputCentsPer1MTokens ? { outputCentsPer1MTokens: Number(form.outputCentsPer1MTokens) } : {}),
-          ...(form.type === "openai" || form.type === "openai-compatible" ? { baseUrl: form.baseUrl } : {}),
-        }),
-  };
-}
-
-function providerToForm(provider: {
-  id: string;
-  name: string;
-  type: string;
-  enabled: boolean;
-  config: Record<string, unknown>;
-}): ProviderFormState {
-  return {
-    id: provider.id,
-    name: provider.name,
-    type: provider.type as ProviderFormState["type"],
-    enabled: provider.enabled,
-    command: typeof provider.config.command === "string" ? provider.config.command : "codex",
-    mode: provider.config.mode === "apply" ? "apply" : "exec",
-    apiKeyEnv: typeof provider.config.apiKeyEnv === "string"
-      ? provider.config.apiKeyEnv
-      : provider.type === "openrouter"
-        ? "OPENROUTER_API_KEY"
-        : "OPENAI_API_KEY",
-    model: typeof provider.config.model === "string" ? provider.config.model : "gpt-5.4-mini",
-    baseUrl: typeof provider.config.baseUrl === "string"
-      ? provider.config.baseUrl
-      : provider.type === "openrouter"
-        ? "https://openrouter.ai/api/v1"
-        : "https://api.openai.com/v1",
-    maxTaskCents: typeof provider.config.maxTaskCents === "number" ? String(provider.config.maxTaskCents) : "",
-    inputCentsPer1MTokens: typeof provider.config.inputCentsPer1MTokens === "number"
-      ? String(provider.config.inputCentsPer1MTokens)
-      : "",
-    outputCentsPer1MTokens: typeof provider.config.outputCentsPer1MTokens === "number"
-      ? String(provider.config.outputCentsPer1MTokens)
-      : "",
-  };
-}
-
 function ProvidersPage() {
   const { data, isLoading } = useQuery({ queryKey: ["providers"], queryFn: api.providers.list });
   const qc = useQueryClient();
   const [testResults, setTestResults] = React.useState<Record<string, { ok: boolean; message: string }>>({});
   const [editingProviderId, setEditingProviderId] = React.useState<string | null>(null);
   const [form, setForm] = React.useState<ProviderFormState>(() => createDefaultProviderForm());
+  const modelOptions = form.type === "codex-cli" ? [] : getProviderModelOptions(form.type);
+  const usingCustomModel = isCustomProviderModel(form);
 
   const resetForm = React.useCallback(() => {
     setEditingProviderId(null);
@@ -1135,10 +1062,10 @@ function ProvidersPage() {
         <div className="space-y-3">
           <div>
             <div className="font-medium text-white">{editingProviderId ? `Editing provider ${editingProviderId}` : "Add provider"}</div>
-            <div className="text-xs text-slate-400 mt-1">Configure Codex CLI, OpenAI, OpenRouter, or an OpenAI-compatible endpoint.</div>
+            <div className="text-xs text-slate-400 mt-1">Configure Codex CLI, OpenAI, OpenRouter, or an OpenAI-compatible endpoint without leaking raw keys back to the dashboard.</div>
           </div>
           <div className="flex items-center justify-between rounded border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs text-slate-400">
-            <span>For cheap smoke tests, start with `gpt-5.4-mini` or `gpt-4o-mini` before moving to larger models.</span>
+            <span>OpenAI-style providers default to `gpt-4o-mini`. Start there, then move up to `gpt-5.5` or a custom model only when you need it.</span>
             {editingProviderId && (
               <button onClick={resetForm} className="text-slate-300 hover:text-white transition-colors">
                 Cancel edit
@@ -1148,7 +1075,7 @@ function ProvidersPage() {
           <div className="grid md:grid-cols-2 gap-3">
             <input value={form.id} onChange={(e) => setForm((current) => ({ ...current, id: e.target.value }))} placeholder="provider id" disabled={editingProviderId !== null} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white disabled:opacity-60" />
             <input value={form.name} onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))} placeholder="display name" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
-            <select value={form.type} disabled={editingProviderId !== null} onChange={(e) => setForm((current) => ({ ...current, type: e.target.value as ProviderFormState["type"], apiKeyEnv: e.target.value === "openrouter" ? "OPENROUTER_API_KEY" : current.apiKeyEnv, baseUrl: e.target.value === "openrouter" ? "https://openrouter.ai/api/v1" : current.baseUrl }))} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white disabled:opacity-60">
+            <select value={form.type} disabled={editingProviderId !== null} onChange={(e) => setForm((current) => applyProviderTypeDefaults(current, e.target.value as ProviderFormState["type"]))} className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white disabled:opacity-60">
               <option value="codex-cli">codex-cli</option>
               <option value="openai">openai</option>
               <option value="openai-compatible">openai-compatible</option>
@@ -1157,7 +1084,50 @@ function ProvidersPage() {
             {form.type === "codex-cli" ? (
               <input value={form.command} onChange={(e) => setForm((current) => ({ ...current, command: e.target.value }))} placeholder="codex command" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
             ) : (
-              <input value={form.apiKeyEnv} onChange={(e) => setForm((current) => ({ ...current, apiKeyEnv: e.target.value }))} placeholder="API key env var" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+              <div className="md:col-span-2 rounded border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300">
+                <div className="font-medium text-white">Credentials</div>
+                <div className="mt-1 text-xs text-slate-400">Paste a key and Feather stores it only in `~/.feather/.env.local`, or point at an existing environment variable.</div>
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setForm((current) => ({ ...current, credentialMode: "local" }))}
+                    className={clsx(
+                      "rounded border px-3 py-2 text-left text-sm transition-colors",
+                      form.credentialMode === "local"
+                        ? "border-feather-500 bg-feather-500/10 text-white"
+                        : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500",
+                    )}
+                  >
+                    Paste API key directly
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm((current) => ({ ...current, credentialMode: "env", apiKeyValue: "", apiKeyStoredLocally: false }))}
+                    className={clsx(
+                      "rounded border px-3 py-2 text-left text-sm transition-colors",
+                      form.credentialMode === "env"
+                        ? "border-feather-500 bg-feather-500/10 text-white"
+                        : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500",
+                    )}
+                  >
+                    Use environment variable
+                  </button>
+                </div>
+                <div className="mt-3">
+                  {form.credentialMode === "local" ? (
+                    <div className="space-y-2">
+                      <input value={form.apiKeyValue} onChange={(e) => setForm((current) => ({ ...current, apiKeyValue: e.target.value, apiKeyStoredLocally: current.apiKeyStoredLocally && e.target.value.length === 0 }))} type="password" placeholder={form.apiKeyStoredLocally ? "Leave blank to keep the stored key" : "Paste API key"} className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+                      <div className="text-xs text-slate-400">
+                        {form.apiKeyStoredLocally && !form.apiKeyValue
+                          ? "A key is already stored locally for this provider. Leave the field blank to keep it."
+                          : "The pasted key never comes back from the API after save."}
+                      </div>
+                    </div>
+                  ) : (
+                    <input value={form.apiKeyEnv} onChange={(e) => setForm((current) => ({ ...current, apiKeyEnv: e.target.value }))} placeholder="API key env var" className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+                  )}
+                </div>
+              </div>
             )}
             {form.type === "codex-cli" ? (
               <div className="space-y-2">
@@ -1168,7 +1138,17 @@ function ProvidersPage() {
                 <div className="text-xs text-slate-500">Mode is currently informational only and does not bypass Feather approvals.</div>
               </div>
             ) : (
-              <input value={form.model} onChange={(e) => setForm((current) => ({ ...current, model: e.target.value }))} placeholder="model" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+              <div className="space-y-2">
+                <select value={usingCustomModel ? "__custom__" : form.model} onChange={(e) => setForm((current) => ({ ...current, model: e.target.value === "__custom__" ? current.model : e.target.value }))} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white">
+                  {modelOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                  <option value="__custom__">Custom...</option>
+                </select>
+                {usingCustomModel && (
+                  <input value={form.model} onChange={(e) => setForm((current) => ({ ...current, model: e.target.value }))} placeholder="Custom model name" className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white" />
+                )}
+              </div>
             )}
             {form.type !== "codex-cli" && (form.type === "openai" || form.type === "openai-compatible") && (
               <input value={form.baseUrl} onChange={(e) => setForm((current) => ({ ...current, baseUrl: e.target.value }))} placeholder="base url" className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2" />
@@ -1194,7 +1174,7 @@ function ProvidersPage() {
             <button onClick={resetForm} className="px-3 py-1.5 rounded border border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white text-sm transition-colors">
               Reset
             </button>
-            <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !form.id || !form.name} className="px-3 py-1.5 rounded bg-feather-600 hover:bg-feather-500 disabled:opacity-50 text-white text-sm transition-colors">
+            <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !isProviderFormValid(form)} className="px-3 py-1.5 rounded bg-feather-600 hover:bg-feather-500 disabled:opacity-50 text-white text-sm transition-colors">
               {saveMut.isPending ? "Saving..." : editingProviderId ? "Update provider" : "Save provider"}
             </button>
           </div>
@@ -1226,9 +1206,10 @@ function ProvidersPage() {
                   <div>Native tool calling: {p.capabilities?.toolCalling ? "yes" : "no"}</div>
                   <div>Cost enforcement: {formatCostMode(p.costEnforcementMode)}</div>
                   <div>{getBudgetEnforcementLabel(p.costEnforcementMode)}</div>
+                  {p.type !== "codex-cli" && <div>Credentials: {getProviderCredentialSummary(p.config)}</div>}
+                  {typeof p.config.model === "string" && <div>Model: {p.config.model}</div>}
                 </div>
                 <div className="mt-2 text-xs text-slate-500">{p.budgetWarning}</div>
-                <div className="text-xs text-slate-500 mt-2 font-mono break-all">{JSON.stringify(p.config)}</div>
                 {testResults[p.id] && (
                   <div className={clsx("text-xs mt-2", testResults[p.id]!.ok ? "text-emerald-400" : "text-red-400")}>
                     {testResults[p.id]!.ok ? "✓" : "✗"} {testResults[p.id]!.message}
@@ -1448,6 +1429,10 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
   const [telegramToken, setTelegramToken] = React.useState("");
   const [telegramUserIds, setTelegramUserIds] = React.useState("");
   const [restartNotice, setRestartNotice] = React.useState<string | null>(null);
+  const providerModelOptions = providerForm.type === "codex-cli" ? [] : getProviderModelOptions(providerForm.type);
+  const usingCustomProviderModel = isCustomProviderModel(providerForm);
+  const parsedTelegramUserIds = parseTelegramUserIds(telegramUserIds);
+  const telegramUserIdIssue = getTelegramUserIdIssue(telegramUserIds);
 
   React.useEffect(() => {
     if (!projectProviderId && providerData?.providers.length) {
@@ -1468,9 +1453,9 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
     },
   });
 
-  const canSubmit = (!createProvider || Boolean(providerForm.id && providerForm.name))
+  const canSubmit = (!createProvider || isProviderFormValid(providerForm))
     && (!createProject || Boolean(projectName && projectRoot))
-    && (!telegramEnabled || Boolean(telegramToken && parseTelegramUserIds(telegramUserIds).length > 0));
+    && (!telegramEnabled || Boolean(telegramToken && parsedTelegramUserIds.length > 0 && !telegramUserIdIssue));
 
   return (
     <div className="space-y-6 pt-4">
@@ -1492,7 +1477,7 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-white">Provider</h3>
-                <p className="mt-1 text-sm text-slate-400">Point Feather at Codex CLI or an API provider before sending any tasks.</p>
+                <p className="mt-1 text-sm text-slate-400">Choose the provider Feather should use first. API keys can be pasted here and stored locally, or you can point at an existing env var.</p>
               </div>
               {!requireProvider && (
                 <label className="flex items-center gap-2 text-sm text-slate-300">
@@ -1512,7 +1497,7 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
               <div className="grid gap-3 md:grid-cols-2">
                 <input value={providerForm.id} onChange={(e) => setProviderForm((current) => ({ ...current, id: e.target.value }))} placeholder="provider id" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
                 <input value={providerForm.name} onChange={(e) => setProviderForm((current) => ({ ...current, name: e.target.value }))} placeholder="display name" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
-                <select value={providerForm.type} onChange={(e) => setProviderForm((current) => ({ ...current, type: e.target.value as ProviderFormState["type"], apiKeyEnv: e.target.value === "openrouter" ? "OPENROUTER_API_KEY" : current.apiKeyEnv, baseUrl: e.target.value === "openrouter" ? "https://openrouter.ai/api/v1" : current.baseUrl }))} className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
+                <select value={providerForm.type} onChange={(e) => setProviderForm((current) => applyProviderTypeDefaults(current, e.target.value as ProviderFormState["type"]))} className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
                   <option value="codex-cli">codex-cli</option>
                   <option value="openai">openai</option>
                   <option value="openai-compatible">openai-compatible</option>
@@ -1521,7 +1506,43 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
                 {providerForm.type === "codex-cli" ? (
                   <input value={providerForm.command} onChange={(e) => setProviderForm((current) => ({ ...current, command: e.target.value }))} placeholder="codex command" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
                 ) : (
-                  <input value={providerForm.apiKeyEnv} onChange={(e) => setProviderForm((current) => ({ ...current, apiKeyEnv: e.target.value }))} placeholder="API key env var" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+                  <div className="rounded border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300 md:col-span-2">
+                    <div className="font-medium text-white">Credentials</div>
+                    <div className="mt-1 text-xs text-slate-400">Paste a key directly and Feather stores it only in `~/.feather/.env.local`, or use an environment variable if you already manage secrets that way.</div>
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => setProviderForm((current) => ({ ...current, credentialMode: "local" }))}
+                        className={clsx(
+                          "rounded border px-3 py-2 text-left text-sm transition-colors",
+                          providerForm.credentialMode === "local"
+                            ? "border-feather-500 bg-feather-500/10 text-white"
+                            : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500",
+                        )}
+                      >
+                        Paste API key directly
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProviderForm((current) => ({ ...current, credentialMode: "env", apiKeyValue: "", apiKeyStoredLocally: false }))}
+                        className={clsx(
+                          "rounded border px-3 py-2 text-left text-sm transition-colors",
+                          providerForm.credentialMode === "env"
+                            ? "border-feather-500 bg-feather-500/10 text-white"
+                            : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500",
+                        )}
+                      >
+                        Use environment variable
+                      </button>
+                    </div>
+                    <div className="mt-3">
+                      {providerForm.credentialMode === "local" ? (
+                        <input value={providerForm.apiKeyValue} onChange={(e) => setProviderForm((current) => ({ ...current, apiKeyValue: e.target.value }))} type="password" placeholder="Paste API key" className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+                      ) : (
+                        <input value={providerForm.apiKeyEnv} onChange={(e) => setProviderForm((current) => ({ ...current, apiKeyEnv: e.target.value }))} placeholder="API key env var" className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+                      )}
+                    </div>
+                  </div>
                 )}
                 {providerForm.type === "codex-cli" ? (
                   <div className="space-y-2">
@@ -1532,7 +1553,17 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
                     <div className="text-xs text-slate-500">Mode is currently informational only and does not bypass Feather approvals.</div>
                   </div>
                 ) : (
-                  <input value={providerForm.model} onChange={(e) => setProviderForm((current) => ({ ...current, model: e.target.value }))} placeholder="model" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+                  <div className="space-y-2">
+                    <select value={usingCustomProviderModel ? "__custom__" : providerForm.model} onChange={(e) => setProviderForm((current) => ({ ...current, model: e.target.value === "__custom__" ? current.model : e.target.value }))} className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
+                      {providerModelOptions.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                      <option value="__custom__">Custom...</option>
+                    </select>
+                    {usingCustomProviderModel && (
+                      <input value={providerForm.model} onChange={(e) => setProviderForm((current) => ({ ...current, model: e.target.value }))} placeholder="Custom model name" className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+                    )}
+                  </div>
                 )}
                 {providerForm.type !== "codex-cli" && (providerForm.type === "openai" || providerForm.type === "openai-compatible") && (
                   <input value={providerForm.baseUrl} onChange={(e) => setProviderForm((current) => ({ ...current, baseUrl: e.target.value }))} placeholder="base URL" className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white md:col-span-2" />
@@ -1593,7 +1624,7 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
           <Card className="space-y-4">
             <div>
               <h3 className="text-lg font-semibold text-white">Telegram</h3>
-              <p className="mt-1 text-sm text-slate-400">Optional, but decide it here so approvals and phone notifications are not an afterthought.</p>
+              <p className="mt-1 text-sm text-slate-400">Optional. If you enable it here, Feather stores the bot token locally and uses numeric Telegram user IDs for approvals.</p>
             </div>
 
             {state.machine.telegramConfigured && (
@@ -1609,11 +1640,17 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
 
             {telegramEnabled ? (
               <div className="space-y-3">
-                <input value={telegramToken} onChange={(e) => setTelegramToken(e.target.value)} placeholder="BotFather token" className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
-                <textarea value={telegramUserIds} onChange={(e) => setTelegramUserIds(e.target.value)} placeholder="Allowed Telegram user IDs, separated by commas" rows={4} className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+                <input value={telegramToken} onChange={(e) => setTelegramToken(e.target.value)} type="password" placeholder="BotFather token" className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+                <textarea value={telegramUserIds} onChange={(e) => setTelegramUserIds(e.target.value)} placeholder="Allowed Telegram numeric user IDs, separated by commas or new lines" rows={4} className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+                {telegramUserIdIssue && (
+                  <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">{telegramUserIdIssue}</div>
+                )}
                 <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-3 text-xs text-slate-400">
-                  Create the bot with BotFather, send it a message once, then paste the numeric Telegram user IDs allowed to approve tasks.
+                  Create the bot with BotFather, send it a message once, then paste the numeric user IDs that are allowed to approve tasks. Do not use `@handles` here.
                 </div>
+                <button type="button" onClick={() => { setTelegramEnabled(false); setTelegramToken(""); setTelegramUserIds(""); }} className="text-sm text-slate-400 hover:text-white transition-colors">
+                  Skip Telegram for now
+                </button>
               </div>
             ) : (
               <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-400">
@@ -1644,7 +1681,7 @@ function MachineSetupStage({ state }: { state: OnboardingState }) {
                     : {}),
                   telegram: {
                     enabled: telegramEnabled,
-                    ...(telegramEnabled ? { botToken: telegramToken, allowedUserIds: parseTelegramUserIds(telegramUserIds) } : {}),
+                    ...(telegramEnabled ? { botToken: telegramToken, allowedUserIds: parsedTelegramUserIds } : {}),
                   },
                 });
               }}
@@ -1796,9 +1833,28 @@ function AgentBuilderStage({ state }: { state: OnboardingState }) {
 
 function parseTelegramUserIds(value: string): number[] {
   return value
-    .split(",")
-    .map((entry) => Number.parseInt(entry.trim(), 10))
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => Number.parseInt(entry, 10))
     .filter((entry) => !Number.isNaN(entry));
+}
+
+function getTelegramUserIdIssue(value: string): string | null {
+  const entries = value
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (entries.some((entry) => entry.startsWith("@"))) {
+    return "Telegram approvals require numeric user IDs, not @handles.";
+  }
+
+  if (entries.some((entry) => !/^\d+$/.test(entry))) {
+    return "Every Telegram entry must be a numeric user ID.";
+  }
+
+  return null;
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -1822,7 +1878,12 @@ export default function App() {
       <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-slate-100">
         <Card className="max-w-xl border-red-500/30 bg-red-500/10">
           <div className="text-lg font-semibold text-white">Could not load onboarding state</div>
-          <div className="mt-2 text-sm text-red-100/80">{error instanceof Error ? error.message : "Unknown error"}</div>
+          <div className="mt-2 text-sm leading-6 text-red-100/80">
+            {error instanceof Error ? error.message : "Unknown error"}
+          </div>
+          <div className="mt-4 rounded-lg border border-red-500/20 bg-slate-950/40 px-4 py-3 text-sm text-slate-200">
+            Start the Feather daemon, then refresh this page. If you are running the dashboard through Vite, point it at the daemon with `VITE_FEATHER_API_BASE_URL` when needed.
+          </div>
         </Card>
       </div>
     );

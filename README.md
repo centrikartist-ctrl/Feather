@@ -91,6 +91,10 @@ pnpm dev
 
 `pnpm dev` starts the daemon and dashboard development server. The dashboard runs at `http://localhost:5173` during development.
 
+During onboarding, Feather can store pasted API keys and Telegram bot tokens locally in `~/.feather/.env.local`. Process environment variables still take precedence if you already manage secrets outside Feather.
+
+If you run the dashboard separately from the daemon, point it at the API with `VITE_FEATHER_API_BASE_URL=http://127.0.0.1:47383`.
+
 Recommended first-run loop:
 
 1. Run `pnpm run setup`.
@@ -166,6 +170,11 @@ For OpenAI, OpenRouter, and OpenAI-compatible providers you can optionally set:
 
 Those pricing fields are used for budget estimates. If you leave them blank, Feather can still record token usage, but it cannot claim hard spend enforcement.
 
+API-provider credentials can come from either:
+
+- a pasted key stored locally in `~/.feather/.env.local`
+- an existing environment variable such as `OPENAI_API_KEY`
+
 For Codex CLI, the `mode` field is currently informational only. It does not bypass Feather approvals.
 
 ## Projects
@@ -210,8 +219,9 @@ heartbeat:
 Use onboarding if you want the simplest path. Feather also supports environment-variable setup:
 
 1. Create a bot via [@BotFather](https://t.me/botfather).
-2. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS` locally.
-3. Restart the daemon if you added credentials after it was already running.
+2. Either paste the bot token during onboarding so Feather stores it in `~/.feather/.env.local`, or set `TELEGRAM_BOT_TOKEN` yourself.
+3. Set allowed Telegram user IDs as numeric IDs, not `@handles`.
+4. Restart the daemon if you added credentials after it was already running.
 
 Useful commands include `/status`, `/projects`, `/task <project> <prompt>`, `/approvals`, `/approve <id>`, `/reject <id>`, `/panic`, `/resume confirm`, `/budget`, `/cancel <taskId>`, `/actions`, `/menu`, `/examples`, and `/help`.
 

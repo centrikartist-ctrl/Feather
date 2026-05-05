@@ -1,4 +1,11 @@
-const API_BASE = "";
+import { resolveApiBaseUrl, requestJson } from "./api-client.js";
+
+const API_BASE = resolveApiBaseUrl((import.meta as ImportMeta & {
+  env: {
+    DEV?: boolean;
+    VITE_FEATHER_API_BASE_URL?: string;
+  };
+}).env);
 
 export type OnboardingState = {
   stage: "machine" | "agent" | "complete";
@@ -65,19 +72,7 @@ export type ProjectConfigResponse = {
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const hasBody = options?.body !== undefined;
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...(hasBody ? { "Content-Type": "application/json" } : {}),
-      ...options?.headers,
-    },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((err as { error?: string }).error ?? res.statusText);
-  }
-  return res.json() as Promise<T>;
+  return requestJson<T>(path, options, { apiBaseUrl: API_BASE });
 }
 
 export const api = {

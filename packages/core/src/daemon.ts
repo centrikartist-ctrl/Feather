@@ -14,11 +14,17 @@ import { MemoryService } from "./memories/index.js";
 import { SkillService } from "./skills/index.js";
 import { FEATHER_HOST, FEATHER_PORT } from "@feather/shared";
 import { loadPanicStateFromDb, getPanicState } from "./panic/index.js";
+import { loadFeatherLocalSecretsIntoProcess } from "./secrets/index.js";
 import path from "node:path";
 import os from "node:os";
 
 export async function startDaemon(options?: { port?: number; dbPath?: string }) {
   const logger = pino({ level: "info" });
+
+  const loadedSecrets = loadFeatherLocalSecretsIntoProcess();
+  if (loadedSecrets.length > 0) {
+    logger.info({ count: loadedSecrets.length }, "Loaded local Feather secrets into process env");
+  }
 
   const globalConfig = loadGlobalConfig();
   const dbPath = options?.dbPath ?? globalConfig.dbPath ?? path.join(os.homedir(), ".feather", "feather.db");

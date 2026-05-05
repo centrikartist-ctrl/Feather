@@ -14,6 +14,7 @@ export type ProviderConfigEntry =
       id: string;
       type: "openai";
       apiKeyEnv: string;
+      credentialMode?: "env" | "local";
       model: string;
       maxTaskCents?: number;
       baseUrl?: string;
@@ -25,6 +26,7 @@ export type ProviderConfigEntry =
       type: "openai-compatible";
       baseUrl: string;
       apiKeyEnv: string;
+      credentialMode?: "env" | "local";
       model: string;
       maxTaskCents?: number;
       inputCentsPer1MTokens?: number;
@@ -34,6 +36,7 @@ export type ProviderConfigEntry =
       id: string;
       type: "openrouter";
       apiKeyEnv: string;
+      credentialMode?: "env" | "local";
       model: string;
       maxTaskCents?: number;
       inputCentsPer1MTokens?: number;

@@ -6,6 +6,7 @@ import type {
   ProviderEvent,
 } from "@feather/shared";
 import { FEATHER_TOOL_NAMES } from "../tools/registry.js";
+import { getFeatherLocalSecretsPath } from "../secrets/index.js";
 
 export type OpenAICompatibleConfig = {
   baseUrl: string;
@@ -147,7 +148,7 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
     if (!apiKey) {
       return {
         ok: false,
-        message: `API key not found. Set environment variable: ${this.config.apiKeyEnv}`,
+        message: `API key not found. Set environment variable: ${this.config.apiKeyEnv} or store it in ${getFeatherLocalSecretsPath()}`,
       };
     }
 
@@ -173,7 +174,7 @@ export class OpenAICompatibleProvider implements ProviderAdapter {
   async *startTask(input: TaskInput): AsyncIterable<ProviderEvent> {
     const apiKey = this.getApiKey();
     if (!apiKey) {
-      yield { type: "error", error: `API key not found. Set ${this.config.apiKeyEnv}` };
+      yield { type: "error", error: `API key not found. Set ${this.config.apiKeyEnv} or store it in ${getFeatherLocalSecretsPath()}` };
       return;
     }
 

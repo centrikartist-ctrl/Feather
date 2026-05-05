@@ -44,6 +44,7 @@ import { tasks } from "../db/schema.js";
 import { readGuardLocks } from "../guard/locks.js";
 import { LifecycleRequestSchema, writeLifecycleRequest } from "../guard/requests.js";
 import { FEATHER_TOOL_NAMES } from "../tools/registry.js";
+import { deriveProviderLocalApiKeyEnvName, upsertFeatherLocalSecret } from "../secrets/index.js";
 
 export type ApiServices = {
   projects: ProjectService;
@@ -105,7 +106,9 @@ const ProviderConfigRequestSchema = z.discriminatedUnion("type", [
     name: z.string().min(1),
     type: z.literal("openai"),
     enabled: z.boolean().optional(),
-    apiKeyEnv: z.string().min(1),
+    credentialMode: z.enum(["env", "local"]).optional(),
+    apiKeyEnv: z.string().min(1).optional(),
+    apiKeyValue: z.string().min(1).optional(),
     model: z.string().min(1),
     maxTaskCents: z.number().int().positive().optional(),
     baseUrl: z.string().url().optional(),
@@ -118,7 +121,9 @@ const ProviderConfigRequestSchema = z.discriminatedUnion("type", [
     type: z.literal("openai-compatible"),
     enabled: z.boolean().optional(),
     baseUrl: z.string().url(),
-    apiKeyEnv: z.string().min(1),
+    credentialMode: z.enum(["env", "local"]).optional(),
+    apiKeyEnv: z.string().min(1).optional(),
+    apiKeyValue: z.string().min(1).optional(),
     model: z.string().min(1),
     maxTaskCents: z.number().int().positive().optional(),
     inputCentsPer1MTokens: z.number().nonnegative().optional(),
@@ -129,7 +134,9 @@ const ProviderConfigRequestSchema = z.discriminatedUnion("type", [
     name: z.string().min(1),
     type: z.literal("openrouter"),
     enabled: z.boolean().optional(),
-    apiKeyEnv: z.string().min(1),
+    credentialMode: z.enum(["env", "local"]).optional(),
+    apiKeyEnv: z.string().min(1).optional(),
+    apiKeyValue: z.string().min(1).optional(),
     model: z.string().min(1),
     maxTaskCents: z.number().int().positive().optional(),
     inputCentsPer1MTokens: z.number().nonnegative().optional(),
@@ -246,38 +253,7 @@ export async function createApiServer(services: ApiServices) {
         name: input.provider.name,
         type: input.provider.type,
         enabled: input.provider.enabled,
-        config: (() => {
-          switch (input.provider.type) {
-            case "codex-cli":
-              return { command: input.provider.command, mode: input.provider.mode };
-            case "openai":
-              return {
-                apiKeyEnv: input.provider.apiKeyEnv,
-                model: input.provider.model,
-                maxTaskCents: input.provider.maxTaskCents,
-                baseUrl: input.provider.baseUrl,
-                inputCentsPer1MTokens: input.provider.inputCentsPer1MTokens,
-                outputCentsPer1MTokens: input.provider.outputCentsPer1MTokens,
-              };
-            case "openai-compatible":
-              return {
-                baseUrl: input.provider.baseUrl,
-                apiKeyEnv: input.provider.apiKeyEnv,
-                model: input.provider.model,
-                maxTaskCents: input.provider.maxTaskCents,
-                inputCentsPer1MTokens: input.provider.inputCentsPer1MTokens,
-                outputCentsPer1MTokens: input.provider.outputCentsPer1MTokens,
-              };
-            case "openrouter":
-              return {
-                apiKeyEnv: input.provider.apiKeyEnv,
-                model: input.provider.model,
-                maxTaskCents: input.provider.maxTaskCents,
-                inputCentsPer1MTokens: input.provider.inputCentsPer1MTokens,
-                outputCentsPer1MTokens: input.provider.outputCentsPer1MTokens,
-              };
-          }
-        })(),
+        config: buildStoredProviderConfig(input.provider),
       });
     }
 
@@ -323,7 +299,11 @@ export async function createApiServer(services: ApiServices) {
       throw new ValidationError("Register at least one project to continue onboarding.");
     }
 
-    const effectiveTelegramToken = input.telegram.botToken ?? globalConfig.telegramBotToken;
+    if (input.telegram.botToken) {
+      upsertFeatherLocalSecret("TELEGRAM_BOT_TOKEN", input.telegram.botToken);
+    }
+
+    const effectiveTelegramToken = input.telegram.botToken ?? process.env["TELEGRAM_BOT_TOKEN"] ?? globalConfig.telegramBotToken;
     const effectiveTelegramUserIds = input.telegram.allowedUserIds ?? globalConfig.allowedTelegramUserIds ?? [];
 
     if (input.telegram.enabled && (!effectiveTelegramToken || effectiveTelegramUserIds.length === 0)) {
@@ -339,7 +319,7 @@ export async function createApiServer(services: ApiServices) {
       },
       ...(input.telegram.enabled
         ? {
-            telegramBotToken: effectiveTelegramToken,
+            telegramBotToken: input.telegram.botToken ? undefined : effectiveTelegramToken,
             allowedTelegramUserIds: effectiveTelegramUserIds,
           }
         : {}),
@@ -635,38 +615,7 @@ export async function createApiServer(services: ApiServices) {
       name: input.name,
       type: input.type,
       enabled: input.enabled,
-      config: (() => {
-        switch (input.type) {
-          case "codex-cli":
-            return { command: input.command, mode: input.mode };
-          case "openai":
-            return {
-              apiKeyEnv: input.apiKeyEnv,
-              model: input.model,
-              maxTaskCents: input.maxTaskCents,
-              baseUrl: input.baseUrl,
-              inputCentsPer1MTokens: input.inputCentsPer1MTokens,
-              outputCentsPer1MTokens: input.outputCentsPer1MTokens,
-            };
-          case "openai-compatible":
-            return {
-              baseUrl: input.baseUrl,
-              apiKeyEnv: input.apiKeyEnv,
-              model: input.model,
-              maxTaskCents: input.maxTaskCents,
-              inputCentsPer1MTokens: input.inputCentsPer1MTokens,
-              outputCentsPer1MTokens: input.outputCentsPer1MTokens,
-            };
-          case "openrouter":
-            return {
-              apiKeyEnv: input.apiKeyEnv,
-              model: input.model,
-              maxTaskCents: input.maxTaskCents,
-              inputCentsPer1MTokens: input.inputCentsPer1MTokens,
-              outputCentsPer1MTokens: input.outputCentsPer1MTokens,
-            };
-        }
-      })(),
+      config: buildStoredProviderConfig(input),
     });
     return { provider };
   });
@@ -1021,7 +970,9 @@ function sanitizeProviderConfig(
       };
     case "openai":
       return {
+        ...(config.credentialMode === "env" || config.credentialMode === "local" ? { credentialMode: config.credentialMode } : {}),
         ...(typeof config.apiKeyEnv === "string" ? { apiKeyEnv: config.apiKeyEnv } : {}),
+        ...(config.credentialMode === "local" ? { apiKeyStoredLocally: true } : {}),
         ...(typeof config.model === "string" ? { model: config.model } : {}),
         ...(typeof config.maxTaskCents === "number" ? { maxTaskCents: config.maxTaskCents } : {}),
         ...(typeof config.baseUrl === "string" ? { baseUrl: config.baseUrl } : {}),
@@ -1031,7 +982,9 @@ function sanitizeProviderConfig(
     case "openai-compatible":
       return {
         ...(typeof config.baseUrl === "string" ? { baseUrl: config.baseUrl } : {}),
+        ...(config.credentialMode === "env" || config.credentialMode === "local" ? { credentialMode: config.credentialMode } : {}),
         ...(typeof config.apiKeyEnv === "string" ? { apiKeyEnv: config.apiKeyEnv } : {}),
+        ...(config.credentialMode === "local" ? { apiKeyStoredLocally: true } : {}),
         ...(typeof config.model === "string" ? { model: config.model } : {}),
         ...(typeof config.maxTaskCents === "number" ? { maxTaskCents: config.maxTaskCents } : {}),
         ...(typeof config.inputCentsPer1MTokens === "number" ? { inputCentsPer1MTokens: config.inputCentsPer1MTokens } : {}),
@@ -1039,7 +992,9 @@ function sanitizeProviderConfig(
       };
     case "openrouter":
       return {
+        ...(config.credentialMode === "env" || config.credentialMode === "local" ? { credentialMode: config.credentialMode } : {}),
         ...(typeof config.apiKeyEnv === "string" ? { apiKeyEnv: config.apiKeyEnv } : {}),
+        ...(config.credentialMode === "local" ? { apiKeyStoredLocally: true } : {}),
         ...(typeof config.model === "string" ? { model: config.model } : {}),
         ...(typeof config.maxTaskCents === "number" ? { maxTaskCents: config.maxTaskCents } : {}),
         ...(typeof config.inputCentsPer1MTokens === "number" ? { inputCentsPer1MTokens: config.inputCentsPer1MTokens } : {}),
@@ -1081,4 +1036,69 @@ function getProviderBudgetWarning(
     return "Pricing configured. Feather can estimate task spend.";
   }
   return "No pricing configured. Feather can record token usage but cannot enforce hard spend caps.";
+}
+
+function buildStoredProviderConfig(input: ProviderConfigRequest): Record<string, unknown> {
+  switch (input.type) {
+    case "codex-cli":
+      return { command: input.command, mode: input.mode };
+    case "openai": {
+      const credentials = resolveApiProviderCredentials(input);
+      return {
+        ...credentials,
+        model: input.model,
+        maxTaskCents: input.maxTaskCents,
+        baseUrl: input.baseUrl,
+        inputCentsPer1MTokens: input.inputCentsPer1MTokens,
+        outputCentsPer1MTokens: input.outputCentsPer1MTokens,
+      };
+    }
+    case "openai-compatible": {
+      const credentials = resolveApiProviderCredentials(input);
+      return {
+        baseUrl: input.baseUrl,
+        ...credentials,
+        model: input.model,
+        maxTaskCents: input.maxTaskCents,
+        inputCentsPer1MTokens: input.inputCentsPer1MTokens,
+        outputCentsPer1MTokens: input.outputCentsPer1MTokens,
+      };
+    }
+    case "openrouter": {
+      const credentials = resolveApiProviderCredentials(input);
+      return {
+        ...credentials,
+        model: input.model,
+        maxTaskCents: input.maxTaskCents,
+        inputCentsPer1MTokens: input.inputCentsPer1MTokens,
+        outputCentsPer1MTokens: input.outputCentsPer1MTokens,
+      };
+    }
+  }
+}
+
+function resolveApiProviderCredentials(
+  input: Extract<ProviderConfigRequest, { type: "openai" | "openai-compatible" | "openrouter" }>,
+): { apiKeyEnv: string; credentialMode: "env" | "local" } {
+  const credentialMode = input.credentialMode ?? "env";
+  if (credentialMode === "local") {
+    const apiKeyEnv = input.apiKeyEnv?.trim() || deriveProviderLocalApiKeyEnvName(input.type, input.id);
+    const apiKeyValue = input.apiKeyValue?.trim();
+    if (!apiKeyValue) {
+      if (process.env[apiKeyEnv]) {
+        return { apiKeyEnv, credentialMode };
+      }
+      throw new ValidationError("Paste an API key or switch this provider to environment variable mode.");
+    }
+
+    upsertFeatherLocalSecret(apiKeyEnv, apiKeyValue);
+    return { apiKeyEnv, credentialMode };
+  }
+
+  const apiKeyEnv = input.apiKeyEnv?.trim();
+  if (!apiKeyEnv) {
+    throw new ValidationError("Enter the environment variable name that holds this provider API key.");
+  }
+
+  return { apiKeyEnv, credentialMode };
 }
