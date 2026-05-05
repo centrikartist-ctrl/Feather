@@ -4,6 +4,7 @@ import { getDb } from "../db/index.js";
 import { panicLog, panicState } from "../db/schema.js";
 import type { PanicState } from "@feather/shared";
 import { PanicModeError } from "@feather/shared";
+import { readGuardLock, removeGuardLock, upsertGuardLock } from "../guard/locks.js";
 
 const PANIC_STATE_ID = "global";
 
@@ -11,11 +12,15 @@ let _panicActive = false;
 let _panicActivatedAt: string | undefined;
 
 export function getPanicState(): PanicState {
+  const panicLock = readGuardLock("panic.lock");
+  if (panicLock.active) {
+    return { active: true, activatedAt: panicLock.createdAt ?? _panicActivatedAt };
+  }
   return { active: _panicActive, activatedAt: _panicActivatedAt };
 }
 
 export function assertNotPanic(): void {
-  if (_panicActive) {
+  if (getPanicState().active) {
     throw new PanicModeError();
   }
 }
@@ -23,6 +28,8 @@ export function assertNotPanic(): void {
 export async function activatePanic(reason = "Manual panic"): Promise<void> {
   _panicActive = true;
   _panicActivatedAt = new Date().toISOString();
+  const lock = upsertGuardLock("panic.lock", reason);
+  _panicActivatedAt = lock.createdAt ?? _panicActivatedAt;
 
   const db = getDb();
 
@@ -57,6 +64,7 @@ export async function activatePanic(reason = "Manual panic"): Promise<void> {
 export async function deactivatePanic(): Promise<void> {
   _panicActive = false;
   _panicActivatedAt = undefined;
+  removeGuardLock("panic.lock");
 
   const now = new Date().toISOString();
   const db = getDb();

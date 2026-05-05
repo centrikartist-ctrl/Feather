@@ -11,6 +11,8 @@ import { activatePanic, _resetPanicForTesting } from "./panic/index.js";
 const tempDirs: string[] = [];
 
 beforeEach(() => {
+  process.env["FEATHER_HOME_DIR"] = fs.mkdtempSync(path.join(os.tmpdir(), "feather-daemon-home-"));
+  tempDirs.push(process.env["FEATHER_HOME_DIR"]);
   _resetPanicForTesting();
 });
 
@@ -19,6 +21,7 @@ afterEach(() => {
   _resetPanicForTesting();
   delete process.env["TELEGRAM_BOT_TOKEN"];
   delete process.env["TELEGRAM_ALLOWED_USER_IDS"];
+  delete process.env["FEATHER_HOME_DIR"];
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }

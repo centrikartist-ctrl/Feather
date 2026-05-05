@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { eq, and } from "drizzle-orm";
+import { eq, and, lt } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { approvals } from "../db/schema.js";
 import type { Approval, RiskLevel } from "@feather/shared";
@@ -229,7 +229,7 @@ export class ApprovalService {
     await db
       .update(approvals)
       .set({ status: "expired" })
-      .where(and(eq(approvals.status, "pending"), eq(approvals.createdAt, cutoff)));
+      .where(and(eq(approvals.status, "pending"), lt(approvals.createdAt, cutoff)));
 
     return 0; // Drizzle doesn't easily return count for sqlite updates
   }

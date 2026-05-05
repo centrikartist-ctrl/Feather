@@ -79,6 +79,10 @@ export class TaskRunner {
     return this.listeners.size;
   }
 
+  getActiveTaskCount(): number {
+    return this.activeTasks.size;
+  }
+
   private emit(taskId: string, event: TaskEvent): void {
     for (const listener of this.listeners) {
       listener(taskId, event);

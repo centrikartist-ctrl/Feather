@@ -12,7 +12,7 @@
     "check:repo-safety": "node scripts/check-repo-safety.mjs",
     "smoke:live:gpt-4o-mini": "node scripts/live-smoke-gpt-4o-mini.mjs",
     "predev": "pnpm --filter @feather/shared build",
-    "pretypecheck": "pnpm --filter @feather/shared build",
+    "pretypecheck": "pnpm --filter @feather/shared build && pnpm --filter @feather/core build",
     "dev": "concurrently -k -n core,dashboard \"pnpm --filter @feather/core exec tsx src/main.ts\" \"pnpm --filter @feather/dashboard dev\"",
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",

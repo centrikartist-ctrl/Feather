@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
-import { closeDb, initDb } from "../db/index.js";
+import { eq } from "drizzle-orm";
+import { closeDb, getDb, initDb } from "../db/index.js";
+import { approvals } from "../db/schema.js";
 import { ApprovalService } from "./index.js";
 import { ApprovalRequiredError } from "@feather/shared";
 import { activatePanic, deactivatePanic } from "../panic/index.js";
@@ -12,6 +14,7 @@ let svc: ApprovalService;
 
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "feather-approval-test-"));
+  process.env["FEATHER_HOME_DIR"] = path.join(tempDir, "home");
   initDb(path.join(tempDir, "test.db"));
   svc = new ApprovalService();
 });
@@ -19,6 +22,7 @@ beforeEach(() => {
 afterEach(async () => {
   await deactivatePanic();
   closeDb();
+  delete process.env["FEATHER_HOME_DIR"];
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -106,5 +110,15 @@ describe("ApprovalService", () => {
 
     await expect(svc.resolveApproval(approval.id, "approved")).rejects.toThrow();
     await expect(svc.resolveApproval(approval.id, "rejected")).resolves.toMatchObject({ status: "rejected" });
+  });
+
+  it("expires approvals older than the cutoff", async () => {
+    const approval = await svc.createApproval({ title: "Old", reason: "r", actionType: "shell", risk: "review", payload: {} });
+    const oldDate = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    await getDb().update(approvals).set({ createdAt: oldDate }).where(eq(approvals.id, approval.id));
+    await svc.expireOldApprovals(24);
+
+    const pending = await svc.getPendingApprovals();
+    expect(pending).toHaveLength(0);
   });
 });

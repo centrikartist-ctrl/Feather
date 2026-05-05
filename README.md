@@ -26,6 +26,7 @@ Status: alpha. This is still an early supervised local operator build and should
 ## Alpha safety guarantees
 
 - Panic state is durable and survives daemon restart.
+- Panic state is also represented by a local `panic.lock` for the external Guard layer.
 - Panic blocks new work and cancels active tasks.
 - Task recovery is conservative.
 - Task recovery is skipped when the daemon starts in panic mode.
@@ -34,6 +35,8 @@ Status: alpha. This is still an early supervised local operator build and should
 - File write approvals include diff previews.
 - Review-risk shell commands require approval.
 - Telegram can activate panic, resume with confirmation, cancel tasks, and handle approvals.
+- The gateway now exposes structured `/health` and safe `/diagnostics/noop` endpoints for supervisor checks.
+- Feather Guard is a separate supervisor app under `apps/supervisor`; it is narrow lifecycle supervision, not a second agent.
 
 ## Known limitations
 
@@ -44,6 +47,7 @@ Status: alpha. This is still an early supervised local operator build and should
 - OpenAI, OpenRouter, and OpenAI-compatible providers use a lightweight Feather tool protocol today; native provider tool-calling is not implemented yet.
 - Tool-heavy API-provider tasks are still less predictable than Codex CLI and should be treated as supervised workflows.
 - Desktop app packaging is not part of v0.01; Feather uses a local web dashboard.
+- Feather Guard does not yet implement staged updates, rollback, runtime manifests, signed releases, encrypted snapshots, or OS-level user separation.
 
 ## Current In-Progress Additions
 
@@ -51,6 +55,7 @@ Status: alpha. This is still an early supervised local operator build and should
 - Explicit editable memory with global and project scope.
 - Local skill files for reusable workflow instructions.
 - More configurable heartbeat modes, checks, cooldowns, and recap instructions.
+- External Guard supervision for health, diagnostics, locks, snapshots, safe mode, and future lifecycle requests.
 
 ---
 

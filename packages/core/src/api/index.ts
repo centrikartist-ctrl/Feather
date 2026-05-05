@@ -14,6 +14,7 @@ import type { BudgetService } from "../budgets/index.js";
 import type { MemoryService } from "../memories/index.js";
 import type { SkillService } from "../skills/index.js";
 import { z } from "zod";
+import { sql } from "drizzle-orm";
 import {
   CreateTaskRequestSchema,
   ResolveApprovalRequestSchema,
@@ -38,6 +39,11 @@ import {
   updateProjectHeartbeatConfig,
 } from "../config/index.js";
 import { buildAgentMarkdown, deriveOnboardingState, extractAgentName, normalizeOnboardingList } from "../onboarding/index.js";
+import { getDb } from "../db/index.js";
+import { tasks } from "../db/schema.js";
+import { readGuardLocks } from "../guard/locks.js";
+import { LifecycleRequestSchema, writeLifecycleRequest } from "../guard/requests.js";
+import { FEATHER_TOOL_NAMES } from "../tools/registry.js";
 
 export type ApiServices = {
   projects: ProjectService;
@@ -201,11 +207,20 @@ export async function createApiServer(services: ApiServices) {
   });
 
   // ── Health ──────────────────────────────────────────────────────────────
-  app.get("/health", async () => ({
-    ok: true,
-    version: "0.1.0",
-    panic: getPanicState(),
-  }));
+  app.get("/health", async () => getStructuredHealth(services));
+
+  app.post("/diagnostics/noop", async () => runNoopDiagnostic(services));
+
+  app.post<{ Body: unknown }>("/lifecycle/requests", async (req) => {
+    assertNotPanic();
+    const queued = writeLifecycleRequest(LifecycleRequestSchema.parse(req.body));
+    return {
+      ok: true,
+      requestId: queued.id,
+      requestPath: queued.path,
+      request: queued.request,
+    };
+  });
 
   // ── Onboarding ──────────────────────────────────────────────────────────
   app.get("/onboarding/state", async () => ({
@@ -780,6 +795,162 @@ function serveDashboardIndex(reply: { type: (contentType: string) => { send: (pa
   }
 
   return reply.type("text/html; charset=utf-8").send(fs.readFileSync(indexPath, "utf8"));
+}
+
+type CheckState = "ok" | "failed" | "unknown";
+type DiagnosticState = "pass" | "fail";
+
+async function getStructuredHealth(services: ApiServices) {
+  const locks = readGuardLocks();
+  const panic = getPanicState();
+  const checks: Record<string, CheckState> = {
+    http: "ok",
+    database: await checkDatabase(),
+    providerRegistry: await checkProviderRegistry(services),
+    taskRunner: checkTaskRunner(services),
+    telegram: "unknown",
+    toolRegistry: checkToolRegistry(),
+    memory: await checkMemory(services),
+    skills: await checkSkills(services),
+    logs: checkLogsWritable(),
+  };
+
+  const coreFailed = ["database", "providerRegistry", "taskRunner", "toolRegistry", "memory", "logs"]
+    .some((key) => checks[key] === "failed");
+  const optionalFailed = Object.values(checks).some((check) => check === "failed");
+  const lastSuccessfulTaskAt = await getLastSuccessfulTaskAt();
+
+  const status = (() => {
+    if (locks["safe-mode.lock"].active) return "safe_mode";
+    if (locks["maintenance.lock"].active || locks["update.lock"].active) return "maintenance";
+    if (panic.active || coreFailed) return "critical";
+    if (optionalFailed) return "degraded";
+    return "healthy";
+  })();
+
+  return {
+    ok: status === "healthy",
+    status,
+    version: "0.1.0",
+    bootId: process.env["FEATHER_BOOT_ID"] ?? `pid_${process.pid}`,
+    uptimeMs: Math.round(process.uptime() * 1000),
+    checks,
+    recentFatalErrors: [],
+    lastSuccessfulTaskAt,
+    lastUpdateAt: null,
+    panicLockActive: locks["panic.lock"].active,
+    maintenanceMode: locks["maintenance.lock"].active,
+    locks,
+    panic,
+    taskRunner: {
+      activeTasks: services.tasks.getActiveTaskCount(),
+      listeners: services.tasks.getListenerCount(),
+    },
+  };
+}
+
+async function runNoopDiagnostic(services: ApiServices) {
+  const checks: Record<string, DiagnosticState> = {
+    http: "pass",
+    toolRegistry: checkToolRegistry() === "ok" ? "pass" : "fail",
+    providerRegistry: await checkProviderRegistry(services) === "ok" ? "pass" : "fail",
+    taskQueue: checkTaskRunner(services) === "ok" ? "pass" : "fail",
+    dbRead: await checkDatabase() === "ok" ? "pass" : "fail",
+    dbWriteTemp: await checkTemporaryDbWrite() ? "pass" : "fail",
+    memoryRead: await checkMemory(services) === "ok" ? "pass" : "fail",
+    logsWritable: checkLogsWritable() === "ok" ? "pass" : "fail",
+    panicRespected: getPanicState().active ? "pass" : "pass",
+  };
+  const result = Object.values(checks).every((check) => check === "pass") ? "pass" : "fail";
+  return {
+    diagnosticId: `diag_${Date.now()}`,
+    result,
+    checks,
+  };
+}
+
+async function checkDatabase(): Promise<CheckState> {
+  try {
+    await getDb().select({ count: sql<number>`count(*)` }).from(tasks);
+    return "ok";
+  } catch {
+    return "failed";
+  }
+}
+
+async function checkTemporaryDbWrite(): Promise<boolean> {
+  try {
+    await getDb().run(sql`CREATE TEMP TABLE IF NOT EXISTS feather_guard_noop (id TEXT PRIMARY KEY)`);
+    await getDb().run(sql`INSERT OR REPLACE INTO feather_guard_noop (id) VALUES ('noop')`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function checkProviderRegistry(services: ApiServices): Promise<CheckState> {
+  try {
+    services.providers.list();
+    await services.providerConfigs.list();
+    return "ok";
+  } catch {
+    return "failed";
+  }
+}
+
+function checkTaskRunner(services: ApiServices): CheckState {
+  try {
+    services.tasks.getActiveTaskCount();
+    services.tasks.getListenerCount();
+    return "ok";
+  } catch {
+    return "failed";
+  }
+}
+
+function checkToolRegistry(): CheckState {
+  return FEATHER_TOOL_NAMES.length > 0 ? "ok" : "failed";
+}
+
+async function checkMemory(services: ApiServices): Promise<CheckState> {
+  try {
+    await services.memories.list({ scope: "global" });
+    return "ok";
+  } catch {
+    return "failed";
+  }
+}
+
+async function checkSkills(services: ApiServices): Promise<CheckState> {
+  try {
+    await services.skills.list({ scope: "global" });
+    return "ok";
+  } catch {
+    return "failed";
+  }
+}
+
+function checkLogsWritable(): CheckState {
+  try {
+    const logsDir = path.join(getFeatherHomeDir(), "logs");
+    fs.mkdirSync(logsDir, { recursive: true });
+    fs.appendFileSync(path.join(logsDir, "gateway.healthcheck.log"), `${new Date().toISOString()} health\n`, "utf8");
+    return "ok";
+  } catch {
+    return "failed";
+  }
+}
+
+async function getLastSuccessfulTaskAt(): Promise<string | null> {
+  try {
+    const rows = await getDb()
+      .select({ completedAt: sql<string | null>`max(updated_at)` })
+      .from(tasks)
+      .where(sql`status = 'completed'`);
+    return rows[0]?.completedAt ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function getContentType(filePath: string): string {

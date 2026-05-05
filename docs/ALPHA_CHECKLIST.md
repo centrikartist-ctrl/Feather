@@ -13,12 +13,27 @@
 
 - [ ] Start daemon
 - [ ] Activate panic
+- [ ] Confirm `panic.lock` is created
 - [ ] Restart daemon
 - [ ] Confirm panic still active
 - [ ] Confirm task recovery is skipped during panic startup
 - [ ] Confirm heartbeat does not start during panic startup
 - [ ] Resume
+- [ ] Confirm `panic.lock` is removed
 - [ ] Confirm heartbeat starts again
+
+## Feather Guard
+
+- [ ] `GET /health` returns structured status and checks
+- [ ] `POST /diagnostics/noop` passes without model calls or user project writes
+- [ ] `panic.lock`, `maintenance.lock`, `update.lock`, and `safe-mode.lock` paths are local and file-based
+- [ ] Supervisor `status` detects reachable gateway health
+- [ ] Supervisor detects unreachable gateway
+- [ ] Supervisor does not restart while `panic.lock` exists
+- [ ] Supervisor enters safe mode after repeated hard failures
+- [ ] Snapshot create writes sanitized files only
+- [ ] Snapshot excludes `.env*`, credentials, keys, logs, DB smoke temp projects, `node_modules`, and build output
+- [ ] Lifecycle request endpoint writes JSON request files and does not execute lifecycle actions directly
 
 ## Codex provider
 

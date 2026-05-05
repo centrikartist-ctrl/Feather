@@ -11,6 +11,7 @@ import {
   loadPanicStateFromDb,
   _resetPanicForTesting,
 } from "./index.js";
+import { getGuardLockPath, removeGuardLock } from "../guard/locks.js";
 
 const tempDirs: string[] = [];
 let currentDbPath: string;
@@ -18,6 +19,7 @@ let currentDbPath: string;
 beforeEach(() => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "feather-panic-test-"));
   tempDirs.push(dir);
+  process.env["FEATHER_HOME_DIR"] = path.join(dir, "home");
   currentDbPath = path.join(dir, "test.db");
   initDb(currentDbPath);
   _resetPanicForTesting();
@@ -26,6 +28,7 @@ beforeEach(() => {
 afterEach(() => {
   closeDb();
   _resetPanicForTesting();
+  delete process.env["FEATHER_HOME_DIR"];
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -41,6 +44,7 @@ describe("panic module", () => {
     await activatePanic("test reason");
     expect(getPanicState().active).toBe(true);
     expect(getPanicState().activatedAt).toBeDefined();
+    expect(fs.existsSync(getGuardLockPath("panic.lock"))).toBe(true);
   });
 
   it("deactivates after activation", async () => {
@@ -48,11 +52,13 @@ describe("panic module", () => {
     await deactivatePanic();
     expect(getPanicState().active).toBe(false);
     expect(getPanicState().activatedAt).toBeUndefined();
+    expect(fs.existsSync(getGuardLockPath("panic.lock"))).toBe(false);
   });
 
   it("loadPanicStateFromDb restores active panic across a restart", async () => {
     await activatePanic("simulated crash");
     // Simulate restart: reset in-memory state without closing DB.
+    removeGuardLock("panic.lock");
     _resetPanicForTesting();
     expect(getPanicState().active).toBe(false); // Sanity: in-memory cleared.
 

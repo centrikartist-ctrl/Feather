@@ -15,3 +15,5 @@ export * from "./telegram/index.js";
 export * from "./onboarding/index.js";
 export * from "./memories/index.js";
 export * from "./skills/index.js";
+export * from "./guard/locks.js";
+export * from "./guard/requests.js";
